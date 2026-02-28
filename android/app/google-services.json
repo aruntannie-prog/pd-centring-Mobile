@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "389488103175",
+    "project_id": "pd-centring-2",
+    "storage_bucket": "pd-centring-2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:389488103175:android:6056a7d3175a09ee4ebfa2",
+        "android_client_info": {
+          "package_name": "com.example.pd_centring"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZd4NbJdSiG0NPix3VU3aUWYy_nAJ8QJ4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
