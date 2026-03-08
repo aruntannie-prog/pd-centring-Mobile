@@ -1,0 +1,51 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master      # runs every time you push to master
+
+permissions:
+  contents: write   # needed to push to gh-pages branch
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ── 1. Checkout source ──────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Flutter ───────────────────────────────────────────────
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'   # pin to the version you use locally
+          channel: 'stable'
+          cache: true
+
+      # ── 3. Write secrets from GitHub Secrets into the repo ─────────────
+      #    (Files excluded from git via .gitignore must be recreated here)
+      - name: Restore .env file
+        run: echo "${{ secrets.DOTENV_FILE }}" > .env
+
+      - name: Restore secrets.dart
+        run: echo "${{ secrets.SECRETS_DART }}" > lib/secrets.dart
+
+      # ── 4. Install dependencies ─────────────────────────────────────────
+      - name: Get Flutter packages
+        run: flutter pub get
+
+      # ── 5. Build Flutter web ─────────────────────────────────────────────
+      #    --base-href must match your GitHub repo name exactly, with slashes
+      - name: Build Flutter web
+        run: flutter build web --release --base-href /pd-centring-Mobile/
+
+      # ── 6. Deploy build/web/ to gh-pages branch ─────────────────────────
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: build/web
+          publish_branch: gh-pages
