@@ -5,6 +5,7 @@ import 'bill.dart';
 import 'customer.dart';
 import '../services/firestore_db.dart';
 import '../services/drive_api.dart';
+import '../services/firebase_storage_service.dart';
 import '../services/storage.dart';
 import 'package:http/http.dart' as http;
 import 'dart:typed_data';
@@ -250,9 +251,12 @@ class AppStore extends ChangeNotifier {
     bool isAddressProof = false,
   }) async {
     try {
-      print('AppStore: 🚀 Starting background upload for $fileName...');
-      final url = await GoogleDriveApi.uploadFile(
-        fileName: fileName,
+      String path = isAddressProof
+          ? 'customers/$customerId/address_proof_${DateTime.now().millisecondsSinceEpoch}.jpg'
+          : 'customers/$customerId/profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
+      final url = await FirebaseStorageService.uploadImage(
+        path: path,
         bytes: bytes,
       );
 
@@ -289,17 +293,17 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
     await FirestoreDb.deleteCustomerRow(id);
 
-    // Fire off remote Drive file deletions in the background
+    // Fire off remote Firebase Storage file deletions in the background
     if (photoUrl.isNotEmpty) {
       print('AppStore: 🗑️ Scheduling profile photo deletion for $id...');
-      GoogleDriveApi.deleteFile(photoUrl).then((success) => 
+      FirebaseStorageService.deleteImage(photoUrl).then((success) => 
           print('AppStore: Profile photo deletion ${success ? "succeeded" : "failed"}')
       );
     }
     
     if (proofUrl.isNotEmpty) {
       print('AppStore: 🗑️ Scheduling address proof deletion for $id...');
-      GoogleDriveApi.deleteFile(proofUrl).then((success) => 
+      FirebaseStorageService.deleteImage(proofUrl).then((success) => 
           print('AppStore: Address proof deletion ${success ? "succeeded" : "failed"}')
       );
     }

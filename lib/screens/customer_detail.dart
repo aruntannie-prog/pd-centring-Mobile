@@ -229,101 +229,66 @@ class CustomerDetailScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   Builder(builder: (context) {
                     final String url = liveCustomer.addressProofUrl;
-                    final bool isImage = url.toLowerCase().contains('.jpg') ||
-                        url.toLowerCase().contains('.jpeg') ||
-                        url.toLowerCase().contains('.png') ||
-                        url.toLowerCase().contains('.webp') ||
-                        url.toLowerCase().contains('.heic');
-
-                    // If we can't definitively say it's an image from the URL extension (e.g. Drive IDs),
-                    // but it's a known image link from our upload process (we force uc?export=view), we try to render.
-                    // However, we should verify the original upload name if possible. Since we only have the URL,
-                    // we err on the side of displaying it as a clickable document link if it looks generic,
-                    // but since the original code tried to render all `uc?export=view` as images, let's use a
-                    // more robust fallback: always show the URL launcher card, BUT if it is explicitly an image, show the image preview.
-                    // Wait, the user uploaded PDFs and they got broken. The previous code grouped everything under CORSResilientImage.
-
-                    // Let's implement a clean "Tap to View Document" card for safety, or render image if we know it's an image.
-                    // Actually, the user asked to handle image and non-image separately. Let's make it a smart card.
-                    if (isImage) {
-                      return GestureDetector(
-                        onTap: () async {
-                          if (await canLaunchUrl(Uri.parse(url))) {
-                            await launchUrl(Uri.parse(url),
-                                mode: LaunchMode.externalApplication);
-                          }
-                        },
-                        child: Container(
-                          height: 160,
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: colors.border, width: 1),
-                          ),
-                          clipBehavior: Clip.hardEdge,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              CORSResilientImage(
-                                imageUrl: url,
-                                fit: BoxFit.cover,
-                                placeholder: const Center(
-                                    child: CircularProgressIndicator()),
-                                errorWidget: const Center(
-                                    child: Icon(Icons.broken_image, size: 36)),
-                              ),
-                              Positioned(
-                                right: 12,
-                                bottom: 12,
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 6),
-                                  decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.6),
-                                      borderRadius: BorderRadius.circular(12)),
-                                  child: Text('TAP TO VIEW',
-                                      style: jakarta(context,
-                                          size: 9,
-                                          weight: FontWeight.w800,
-                                          color: Colors.white)),
-                                ),
-                              )
-                            ],
-                          ),
+                    return GestureDetector(
+                      onTap: () {
+                        showDialog(
+                            context: context,
+                            builder: (ctx) => Dialog(
+                                  backgroundColor: Colors.transparent,
+                                  insetPadding: EdgeInsets.zero,
+                                  child: InteractiveViewer(
+                                    child: CORSResilientImage(
+                                      imageUrl: url,
+                                      placeholder: const Center(
+                                          child:
+                                              CircularProgressIndicator()),
+                                      errorWidget: Center(
+                                          child: Icon(Icons.error_outline,
+                                              size: 48,
+                                              color: colors.textSub)),
+                                    ),
+                                  ),
+                                ));
+                      },
+                      child: Container(
+                        height: 160,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: colors.border, width: 1),
                         ),
-                      );
-                    } else {
-                      return GestureDetector(
-                        onTap: () async {
-                          final String targetUrl = liveCustomer.addressProofUrl;
-                          if (targetUrl.isNotEmpty) {
-                            final url = Uri.parse(targetUrl);
-                            if (await canLaunchUrl(url)) {
-                              await launchUrl(url,
-                                  mode: LaunchMode.externalApplication);
-                            }
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                              color: colors.surfaceVariant,
-                              borderRadius: BorderRadius.circular(12)),
-                          child: Row(children: [
-                            const Text('📄', style: TextStyle(fontSize: 24)),
-                            const SizedBox(width: 12),
-                            Expanded(
-                                child: Text('Open Attached Document',
+                        clipBehavior: Clip.hardEdge,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            CORSResilientImage(
+                              imageUrl: url,
+                              fit: BoxFit.cover,
+                              placeholder: const Center(
+                                  child: CircularProgressIndicator()),
+                              errorWidget: const Center(
+                                  child: Icon(Icons.broken_image, size: 36)),
+                            ),
+                            Positioned(
+                              right: 12,
+                              bottom: 12,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.6),
+                                    borderRadius: BorderRadius.circular(12)),
+                                child: Text('TAP TO ENLARGE',
                                     style: jakarta(context,
-                                        size: 12,
-                                        weight: FontWeight.w700,
-                                        color: colors.textMain))),
-                            Icon(Icons.open_in_new_rounded,
-                                size: 18, color: colors.brand),
-                          ]),
+                                        size: 9,
+                                        weight: FontWeight.w800,
+                                        color: Colors.white)),
+                              ),
+                            )
+                          ],
                         ),
-                      );
-                    }
+                      ),
+                    );
                   }),
                 ]),
               ],

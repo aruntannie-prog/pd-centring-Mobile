@@ -113,35 +113,28 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       _rawAddressBytes; // Holds the actual file bytes for upload (Image OR PDF)
 
   // ── Document Pick ─────────────────────────────────────────────────────────
-  Future<void> _pickAddressProof() async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'webp', 'docx'],
-      withData: true,
+  Future<void> _pickAddressProof(ImageSource source) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: source,
+      imageQuality: kIsWeb ? 40 : 70,
     );
-    if (result == null || result.files.isEmpty || !mounted) return;
-    final file = result.files.first;
-    if (file.bytes == null) return;
+    if (pickedFile == null || !mounted) return;
 
-    final ext = file.name.split('.').last.toLowerCase();
-    Uint8List bytes = file.bytes!;
-    final isImage = ['jpg', 'jpeg', 'png', 'webp', 'heic'].contains(ext);
+    final bytes = await pickedFile.readAsBytes();
+    Uint8List finalBytes = bytes;
 
-    // Show local preview immediately — no network needed
-    setState(() {
-      _rawAddressBytes = bytes; // Always store raw bytes for upload
-      _localAddressBytes =
-          isImage ? bytes : null; // Only for image preview rendering
-      _addressFileName = file.name;
-    });
-
-    // Compress images on native only — web bytes already at reduced quality
-    if (!kIsWeb && isImage) {
-      _localAddressBytes =
-          await ImageCompressor.compress(bytes, maxWidth: 1600);
-      _rawAddressBytes =
-          _localAddressBytes; // Upload compressed version saving bandwidth
+    // Compress images on native only
+    if (!kIsWeb) {
+      finalBytes = await ImageCompressor.compress(bytes, maxWidth: 1600);
     }
+
+    if (!mounted) return;
+    setState(() {
+      _rawAddressBytes = finalBytes;
+      _localAddressBytes = finalBytes;
+      _addressFileName = pickedFile.name;
+    });
   }
 
   void _save() {
@@ -418,7 +411,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
               const SizedBox(height: 16),
               _Lbl('Address Proof', colors: colors),
               GestureDetector(
-                onTap: _pickAddressProof,
+                onTap: () => _showPhotoSheet(context, colors, isAddressProof: true),
                 child: Container(
                   width: double.infinity,
                   height: 120,
@@ -485,85 +478,46 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     );
   }
 
-  // Builds the address proof preview widget.
-  // Priority: (1) local bytes via Image.memory (no network, no CORS)
-  //           (2) doc card for PDFs from previous sessions (_addressUrl set)
-  //           (3) empty prompt
   Widget _buildAddressPreview(AppColors colors) {
-    final hasLocal = _localAddressBytes != null;
-    final hasRemote = _addressUrl != null && _addressUrl!.isNotEmpty;
-    final hasAny = hasLocal || hasRemote || _addressFileName != null;
-    if (hasLocal) {
-      // Image file — show local bytes immediately, no network needed
+    if (_localAddressBytes != null) {
+      // Local raw bytes uploaded by user
       return Stack(
         fit: StackFit.expand,
         children: [
           Image.memory(_localAddressBytes!, fit: BoxFit.cover),
-
-          // Open in Drive button (only when URL is available)
-          if (hasRemote)
-            Positioned(
-              right: 8,
-              top: 8,
-              child: _openInDriveButton(colors),
-            ),
         ],
       );
     }
 
-    if (hasAny) {
-      // Non-image doc (PDF/Word) or existing record URL — show card
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: colors.brand.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              _addressFileName?.toLowerCase().endsWith('.pdf') == true
-                  ? '📄'
-                  : '📎',
-              style: const TextStyle(fontSize: 24),
-            ),
+    if (_addressUrl != null && _addressUrl!.isNotEmpty) {
+      // Remote image loaded from storage
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          CORSResilientImage(
+            imageUrl: _addressUrl!,
+            fit: BoxFit.cover,
+            placeholder: Center(child: CircularProgressIndicator(color: colors.brand)),
+            errorWidget: Center(child: Icon(Icons.broken_image, size: 36, color: colors.textMuted)),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    _addressFileName ?? 'Document Attached',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: jakarta(context,
-                        size: 13,
-                        weight: FontWeight.w700,
-                        color: colors.textMain),
-                  ),
-                  const SizedBox(height: 4),
-                  Text('Tap to change',
-                      style:
-                          jakarta(context, size: 11, color: colors.textMuted)),
-                ]),
+          Positioned(
+            right: 8,
+            top: 8,
+            child: _openInDriveButton(colors),
           ),
-          if (hasRemote) _openInDriveButton(colors),
-        ]),
+        ],
       );
     }
 
     // Empty state — prompt to attach
     return Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      const Text('📎', style: TextStyle(fontSize: 28)),
+      const Text('📷', style: TextStyle(fontSize: 28)),
       const SizedBox(height: 12),
-      Text('Attach Document',
+      Text('Take Address Photo',
           style: jakarta(context,
               size: 13, weight: FontWeight.w700, color: colors.brand)),
       const SizedBox(height: 4),
-      Text('PDF · Images · Word',
+      Text('Camera or Gallery',
           style: jakarta(context, size: 11, color: colors.textMuted)),
     ]);
   }
@@ -584,7 +538,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     );
   }
 
-  void _showPhotoSheet(BuildContext context, AppColors colors) {
+  void _showPhotoSheet(BuildContext context, AppColors colors, {bool isAddressProof = false}) {
     showModalBottomSheet(
       context: context,
       backgroundColor: colors.surface,
@@ -600,7 +554,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                   color: colors.border,
                   borderRadius: BorderRadius.circular(2))),
           const SizedBox(height: 24),
-          Text('Upload Profile Photo',
+          Text(isAddressProof ? 'Upload Address Proof' : 'Upload Profile Photo',
               style: jakarta(context,
                   size: 18, weight: FontWeight.w800, color: colors.textMain)),
           const SizedBox(height: 8),
@@ -611,14 +565,14 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
             Expanded(
                 child: _PhotoBtn('📷', 'Take Photo', colors: colors, onTap: () {
               Navigator.pop(ctx);
-              _pickProfile(ImageSource.camera);
+              isAddressProof ? _pickAddressProof(ImageSource.camera) : _pickProfile(ImageSource.camera);
             })),
             const SizedBox(width: 16),
             Expanded(
                 child:
                     _PhotoBtn('🖼', 'From Gallery', colors: colors, onTap: () {
               Navigator.pop(ctx);
-              _pickProfile(ImageSource.gallery);
+              isAddressProof ? _pickAddressProof(ImageSource.gallery) : _pickProfile(ImageSource.gallery);
             })),
           ]),
           const SizedBox(height: 16),
