@@ -42,6 +42,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
   final _siteCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _gstCtrl = TextEditingController();
+  final _billNumCtrl = TextEditingController();
   final List<_MatEntry> _mats = [];
   DateTime _baseDate = DateTime.now();
   String _selectedBranch = '';
@@ -59,8 +60,14 @@ class _NewBillScreenState extends State<NewBillScreen> {
       for (final m in b.materials) {
         _mats.add(_MatEntry(name: m.name, days: m.days));
       }
+      _billNumCtrl.text = b.billNumber;
     } else {
       _selectedBranch = widget.branch;
+      Future.microtask(() {
+        if (mounted) {
+          _billNumCtrl.text = context.read<AppStore>().nextBillNumber(_type);
+        }
+      });
     }
   }
 
@@ -85,6 +92,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
     _siteCtrl.dispose();
     _phoneCtrl.dispose();
     _gstCtrl.dispose();
+    _billNumCtrl.dispose();
     super.dispose();
   }
 
@@ -120,10 +128,10 @@ class _NewBillScreenState extends State<NewBillScreen> {
       );
       return;
     }
-    if (_customerName.isEmpty || _siteCtrl.text.isEmpty) {
+    if (_customerName.isEmpty || _siteCtrl.text.isEmpty || _billNumCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-            content: const Text('Please fill customer and site details'),
+            content: const Text('Please fill customer, site details, and Bill Number'),
             backgroundColor: const Color(0xFFFF5555),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
@@ -163,7 +171,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
     final store = context.read<AppStore>();
     final newBill = Bill(
       id: widget.initialBill?.id ?? _uuid.v4(),
-      billNumber: widget.initialBill?.billNumber ?? store.nextBillNumber(_type),
+      billNumber: _billNumCtrl.text.trim(),
       type: _type,
       customerName: _customerName,
       customerId: _customerId,
@@ -190,7 +198,6 @@ class _NewBillScreenState extends State<NewBillScreen> {
   @override
   Widget build(BuildContext context) {
     final store = context.read<AppStore>();
-    final billNum = store.nextBillNumber(_type);
     final colors = context.appColors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
@@ -245,28 +252,42 @@ class _NewBillScreenState extends State<NewBillScreen> {
                             color: colors.textSub)
                         .copyWith(letterSpacing: 2))),
             const SizedBox(height: 12),
-            Text.rich(TextSpan(children: [
-              TextSpan(
-                  text: widget.initialBill != null ? 'Edit ' : 'New ',
-                  style: GoogleFonts.playfairDisplay(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w900,
-                      color: colors.textMain)),
-              TextSpan(
-                  text: _type == BillType.bill ? 'Bill' : 'DC',
-                  style: GoogleFonts.playfairDisplay(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w900,
-                      color:
-                          _type == BillType.bill ? colors.teal : colors.brand,
-                      fontStyle: FontStyle.italic)),
-              TextSpan(
-                  text: '  $billNum',
-                  style: GoogleFonts.playfairDisplay(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: colors.textMuted)),
-            ])),
+            Row(
+              children: [
+                Text.rich(TextSpan(children: [
+                  TextSpan(
+                      text: widget.initialBill != null ? 'Edit ' : 'New ',
+                      style: GoogleFonts.playfairDisplay(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color: colors.textMain)),
+                  TextSpan(
+                      text: _type == BillType.bill ? 'Bill ' : 'DC ',
+                      style: GoogleFonts.playfairDisplay(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w900,
+                          color:
+                              _type == BillType.bill ? colors.teal : colors.brand,
+                          fontStyle: FontStyle.italic)),
+                ])),
+                Expanded(
+                  child: TextField(
+                    controller: _billNumCtrl,
+                    style: GoogleFonts.playfairDisplay(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w700,
+                        color: colors.textMuted),
+                    decoration: InputDecoration(
+                      hintText: '# Number',
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      border: OutlineInputBorder(borderSide: BorderSide(color: colors.border), borderRadius: BorderRadius.circular(8)),
+                      enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: colors.border), borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             if (store.customers.isEmpty) ...[
               Text('ℹ️ No customers found. Add one first or enter manually.',
@@ -361,35 +382,6 @@ class _NewBillScreenState extends State<NewBillScreen> {
                         isTeal: false,
                         onTap: () => setState(() => _type = BillType.dc))),
               ]),
-              if (_type == BillType.dc) ...[
-                const SizedBox(height: 12),
-                Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF14224A).withOpacity(0.5)
-                            : const Color(0xFFF0F4FF),
-                        border: Border.all(
-                            color: isDark
-                                ? const Color(0xFF2A3D70)
-                                : const Color(0xFFD0DFFF),
-                            width: 0.5),
-                        borderRadius: BorderRadius.circular(16)),
-                    child: Row(children: [
-                      const Text('ℹ️', style: TextStyle(fontSize: 18)),
-                      const SizedBox(width: 12),
-                      Expanded(
-                          child: Text(
-                              'DC = Delivery Challan · Vehicle & transport proof',
-                              style: jakarta(context,
-                                  size: 11,
-                                  color: isDark
-                                      ? const Color(0xFF8BA5F5)
-                                      : const Color(0xFF3454B4),
-                                  weight: FontWeight.w600)))
-                    ])),
-              ],
-              const SizedBox(height: 24),
               // Customer
               _Label('Customer *'),
               Autocomplete<Customer>(
@@ -557,42 +549,6 @@ class _NewBillScreenState extends State<NewBillScreen> {
                           colors)),
                 ]),
               ],
-              const SizedBox(height: 24),
-              // Status info
-              Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                      color: colors.tealBg,
-                      border: Border.all(color: colors.tealBd, width: 0.5),
-                      borderRadius: BorderRadius.circular(16)),
-                  child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                              color: colors.surface.withOpacity(0.6),
-                              shape: BoxShape.circle),
-                          child:
-                              const Text('💡', style: TextStyle(fontSize: 16)),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                              Text('Status Logic',
-                                  style: jakarta(context,
-                                      size: 12,
-                                      weight: FontWeight.w800,
-                                      color: colors.teal)),
-                              const SizedBox(height: 4),
-                              Text(
-                                  'Each material starts Pending. Becomes Returned only when physically handed back. Bill closes when all materials returned.',
-                                  style: jakarta(context,
-                                      size: 11, color: colors.teal)),
-                            ])),
-                      ])),
               const SizedBox(height: 24),
               SectionHeader('MATERIALS',
                   action: '+ Add',
@@ -999,33 +955,6 @@ class _NewBillScreenState extends State<NewBillScreen> {
                                             )
                                           ])),
                                 ]),
-                            const SizedBox(height: 16),
-                            Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                    color: isDark
-                                        ? const Color(0xFF1E1505)
-                                        : const Color(0xFFFFF9EE),
-                                    border: Border.all(
-                                        color: isDark
-                                            ? const Color(0xFF70521F)
-                                            : const Color(0xFFFFDCA8),
-                                        width: 0.5),
-                                    borderRadius: BorderRadius.circular(12)),
-                                child: Row(children: [
-                                  const Text('🔒',
-                                      style: TextStyle(fontSize: 16)),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                      child: Text(
-                                          'Status: Pending — changes to Returned when physically handed back',
-                                          style: jakarta(context,
-                                              size: 11,
-                                              color: isDark
-                                                  ? const Color(0xFFFFC043)
-                                                  : const Color(0xFFB18000),
-                                              weight: FontWeight.w600)))
-                                ])),
                           ]),
                     ),
                   ]),
@@ -1098,7 +1027,7 @@ class _NewBillScreenState extends State<NewBillScreen> {
                   ),
                   child: Center(
                       child: Text(
-                          'SAVE ${_type == BillType.bill ? "BILL" : "DC"} $billNum',
+                          'SAVE ${_type == BillType.bill ? "BILL" : "DC"} ${_billNumCtrl.text}',
                           style: jakarta(context,
                                   size: 14,
                                   weight: FontWeight.w800,

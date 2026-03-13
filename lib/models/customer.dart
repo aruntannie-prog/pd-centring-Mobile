@@ -20,6 +20,8 @@ class Customer {
   /// share links, or thumbnails) into a permanent direct-access public URL.
   static String normalizeDriveUrl(String? url) {
     if (url == null || url.trim().isEmpty) return '';
+    // Base64 data URLs should be returned as-is — never touch them
+    if (url.startsWith('data:')) return url;
     // Strip legacy 'thumb||full' combined payload
     String cleanUrl = url.contains('||') ? url.split('||').last : url.trim();
 

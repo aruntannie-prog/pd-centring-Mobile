@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -27,6 +28,19 @@ class CORSResilientImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     String renderUrl = imageUrl;
+
+    // Base64 data URLs can be decoded and rendered natively on all platforms
+    if (renderUrl.startsWith('data:image')) {
+      try {
+        final base64Str = renderUrl.split(',').last;
+        final bytes = base64Decode(base64Str);
+        return Image.memory(bytes, fit: fit, width: width, height: height,
+            errorBuilder: (_, __, ___) =>
+                errorWidget ?? const Center(child: Icon(Icons.broken_image)));
+      } catch (_) {
+        return errorWidget ?? const Center(child: Icon(Icons.broken_image));
+      }
+    }
 
     // Google Drive blocks Canvas <img src=""> tags via CORB and Content-Type: text/html HTML wrappers.
     // We aggressively wrap all Drive URLs through `images.weserv.nl` which strips the HTML wrapper,

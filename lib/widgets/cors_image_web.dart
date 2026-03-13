@@ -24,7 +24,37 @@ class CORSResilientImage extends StatelessWidget {
   Widget build(BuildContext context) {
     if (imageUrl.isEmpty) return errorWidget ?? const SizedBox.shrink();
 
-    // Use a unique view type for each URL so Flutter correctly mounts a new element
+    // Firebase Storage URLs and other standard HTTPS URLs work perfectly
+    // with Flutter's built-in Image.network() on web — no HtmlElementView needed.
+    // Only Google Drive URLs require the HtmlElementView workaround due to CORB.
+    if (!imageUrl.contains('drive.google.com') &&
+        !imageUrl.contains('docs.google.com') &&
+        !imageUrl.contains('images.weserv.nl')) {
+      return Image.network(
+        imageUrl,
+        fit: fit,
+        width: width,
+        height: height,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return placeholder ??
+              Center(
+                child: CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                      : null,
+                  strokeWidth: 2,
+                ),
+              );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return errorWidget ?? const Center(child: Icon(Icons.broken_image));
+        },
+      );
+    }
+
+    // Google Drive URLs: use HtmlElementView with weserv.nl proxy to bypass CORB.
     final String viewType =
         'img-${imageUrl.hashCode}-${DateTime.now().millisecondsSinceEpoch}';
 
@@ -37,7 +67,6 @@ class CORSResilientImage extends StatelessWidget {
         ..style.border = 'none'
         ..style.objectFit = _fitToString(fit);
 
-      // Prevent browser default drag behavior on images
       img.onDragStart.listen((e) => e.preventDefault());
       return img;
     });

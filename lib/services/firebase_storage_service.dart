@@ -6,42 +6,36 @@ class FirebaseStorageService {
   static final FirebaseStorage _storage = FirebaseStorage.instance;
 
   /// Uploads byte data to Firebase Storage and returns the public download URL.
-  static Future<String?> uploadImage({
+  /// Throws an exception if the upload fails so callers can surface the error.
+  static Future<String> uploadImage({
     required String path,
     required Uint8List bytes,
   }) async {
-    try {
-      debugPrint('FirebaseStorageService: Uploading to $path...');
-      final ref = _storage.ref().child(path);
-      
-      final metadata = SettableMetadata(
-        contentType: 'image/jpeg',
-        customMetadata: {'uploaded_at': DateTime.now().toIso8601String()},
-      );
+    debugPrint('FirebaseStorageService: Uploading ${bytes.length} bytes to $path');
+    debugPrint('FirebaseStorageService: Bucket = ${_storage.bucket}');
 
-      final uploadTask = ref.putData(bytes, metadata);
-      final snapshot = await uploadTask;
-      
-      final downloadUrl = await snapshot.ref.getDownloadURL();
-      debugPrint('FirebaseStorageService: ✅ Upload complete: $downloadUrl');
-      return downloadUrl;
-    } catch (e) {
-      debugPrint('FirebaseStorageService: ❌ Upload failed: $e');
-      return null;
-    }
+    final ref = _storage.ref().child(path);
+
+    final metadata = SettableMetadata(
+      contentType: 'image/jpeg',
+    );
+
+    final uploadTask = ref.putData(bytes, metadata);
+    final snapshot = await uploadTask;
+
+    final downloadUrl = await snapshot.ref.getDownloadURL();
+    debugPrint('FirebaseStorageService: ✅ Upload complete: $downloadUrl');
+    return downloadUrl;
   }
 
   /// Deletes a file from Firebase Storage given its HTTPS download URL.
   static Future<bool> deleteImage(String url) async {
     if (!url.contains('firebasestorage.googleapis.com')) {
-      debugPrint('FirebaseStorageService: URL is not a Firebase Storage URL: $url');
       return false;
     }
-    
     try {
       final ref = _storage.refFromURL(url);
       await ref.delete();
-      debugPrint('FirebaseStorageService: ✅ Deleted from storage: $url');
       return true;
     } catch (e) {
       debugPrint('FirebaseStorageService: ❌ Delete failed: $e');

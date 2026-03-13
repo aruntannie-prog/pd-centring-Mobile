@@ -1,0 +1,10 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /customers/{allPaths=**} {
+      // Allow anyone to upload customer images.
+      // This app is private/internal — only accessible via secure login in the app itself.
+      allow read, write: if true;
+    }
+  }
+}

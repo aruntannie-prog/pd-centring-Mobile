@@ -5,9 +5,7 @@ import 'bill.dart';
 import 'customer.dart';
 import '../services/firestore_db.dart';
 import '../services/drive_api.dart';
-import '../services/firebase_storage_service.dart';
 import '../services/storage.dart';
-import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 
 class AppStore extends ChangeNotifier {
@@ -242,8 +240,8 @@ class AppStore extends ChangeNotifier {
     }
   }
 
-  /// True background upload orchestration.
-  /// Decoupled from UI unmounts. Guarantees db write for successful uploads.
+  /// Encode bytes as base64 data URL and save directly to Firestore customer record.
+  /// This avoids all Firebase Storage complexity — Firestore already works perfectly.
   Future<void> uploadAndSetCustomerPhoto(
     String customerId,
     String fileName,
@@ -251,62 +249,38 @@ class AppStore extends ChangeNotifier {
     bool isAddressProof = false,
   }) async {
     try {
-      String path = isAddressProof
-          ? 'customers/$customerId/address_proof_${DateTime.now().millisecondsSinceEpoch}.jpg'
-          : 'customers/$customerId/profile_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      // Encode bytes as base64 data URL (data:image/jpeg;base64,...)
+      final base64Str = base64Encode(bytes);
+      final dataUrl = 'data:image/jpeg;base64,$base64Str';
 
-      final url = await FirebaseStorageService.uploadImage(
-        path: path,
-        bytes: bytes,
-      );
+      final cIdx = _customers.indexWhere((c) => c.id == customerId);
+      if (cIdx != -1) {
+        final c = _customers[cIdx];
+        final updated = isAddressProof
+            ? c.copyWith(addressProofUrl: dataUrl)
+            : c.copyWith(profilePhotoUrl: dataUrl);
 
-      if (url != null) {
-        final cIdx = _customers.indexWhere((c) => c.id == customerId);
-        if (cIdx != -1) {
-          final c = _customers[cIdx];
-          final updated = isAddressProof
-              ? c.copyWith(addressProofUrl: url)
-              : c.copyWith(profilePhotoUrl: url);
+        _customers[cIdx] = updated;
+        notifyListeners();
 
-          _customers[cIdx] = updated;
-          notifyListeners(); // Optimistic UI update
-
-          // Store the direct-access URL in the DB unconditionally
-          await FirestoreDb.insertOrUpdateCustomer(updated);
-          print('AppStore: ✅ Guaranteed Database Persistence for $fileName');
-        }
+        await FirestoreDb.insertOrUpdateCustomer(updated);
+        print('AppStore: ✅ Photo saved as base64 in Firestore for $customerId');
       }
     } catch (e) {
-      print('AppStore: ❌ Background upload orchestration failed: $e');
+      print('AppStore: ❌ Upload failed: $e');
+      rethrow;
     }
   }
 
   Future<void> deleteCustomer(String id) async {
     final cIdx = _customers.indexWhere((c) => c.id == id);
     if (cIdx == -1) return;
-    
-    final customer = _customers[cIdx];
-    final photoUrl = customer.profilePhotoUrl;
-    final proofUrl = customer.addressProofUrl;
 
     _customers.removeAt(cIdx);
     notifyListeners();
     await FirestoreDb.deleteCustomerRow(id);
-
-    // Fire off remote Firebase Storage file deletions in the background
-    if (photoUrl.isNotEmpty) {
-      print('AppStore: 🗑️ Scheduling profile photo deletion for $id...');
-      FirebaseStorageService.deleteImage(photoUrl).then((success) => 
-          print('AppStore: Profile photo deletion ${success ? "succeeded" : "failed"}')
-      );
-    }
-    
-    if (proofUrl.isNotEmpty) {
-      print('AppStore: 🗑️ Scheduling address proof deletion for $id...');
-      FirebaseStorageService.deleteImage(proofUrl).then((success) => 
-          print('AppStore: Address proof deletion ${success ? "succeeded" : "failed"}')
-      );
-    }
+    // Note: base64 image data is stored IN the Firestore document,
+    // so it is automatically deleted when the customer document is deleted.
   }
 
   String nextBillNumber(BillType type) {
