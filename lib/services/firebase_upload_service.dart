@@ -6,7 +6,7 @@ class FirebaseUploadService {
   static final _storage = FirebaseStorage.instance;
 
   /// Uploads [bytes] to [storagePath] and returns the public download URL.
-  /// Throws on failure — callers should catch and fall back to base64 if needed.
+  /// Times out after 30 s — callers should catch and fall back to base64.
   static Future<String> uploadBytes(
     Uint8List bytes,
     String storagePath, {
@@ -14,8 +14,12 @@ class FirebaseUploadService {
   }) async {
     final ref = _storage.ref().child(storagePath);
     final metadata = SettableMetadata(contentType: contentType);
-    await ref.putData(bytes, metadata);
-    return await ref.getDownloadURL();
+    await ref
+        .putData(bytes, metadata)
+        .timeout(const Duration(seconds: 30));
+    return await ref
+        .getDownloadURL()
+        .timeout(const Duration(seconds: 15));
   }
 
   /// Unique storage path for a customer profile photo.

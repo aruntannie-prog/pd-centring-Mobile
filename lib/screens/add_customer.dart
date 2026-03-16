@@ -132,21 +132,25 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     setState(() {
       _localProfileBytes    = crop;
       _originalProfileBytes = orig;
-      _profileUploading     = true;
+      _profileUploading     = false; // web: no background upload, use base64 at save
       _profileUploadFuture  = null;
     });
-    // Upload the full original image to Firebase Storage in background
-    final path = FirebaseUploadService.profilePath();
-    _profileUploadFuture = FirebaseUploadService.uploadBytes(
-      orig, path, contentType: 'image/jpeg',
-    ).then((url) {
-      if (mounted) setState(() => _profileUploading = false);
-      return url;
-    }).catchError((e) {
-      debugPrint('Profile upload error: $e');
-      if (mounted) setState(() => _profileUploading = false);
-      return ''; // empty → will fall back to base64 at save time
-    });
+    // On web: skip background upload to avoid CORS/auth hangs — base64 fallback at save.
+    // On mobile: upload in background with a 30-second timeout.
+    if (!kIsWeb) {
+      setState(() => _profileUploading = true);
+      final path = FirebaseUploadService.profilePath();
+      _profileUploadFuture = FirebaseUploadService.uploadBytes(
+        orig, path, contentType: 'image/jpeg',
+      ).then((url) {
+        if (mounted) setState(() => _profileUploading = false);
+        return url;
+      }).catchError((e) {
+        debugPrint('Profile upload error: $e');
+        if (mounted) setState(() => _profileUploading = false);
+        return ''; // empty → will fall back to base64 at save time
+      });
+    }
   }
 
   // ── Pick address proof from camera / gallery ──────────────────────────────
@@ -260,9 +264,15 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
   }
 
   // ── Background proof upload helper ────────────────────────────────────────
-  // Called synchronously right after setState adds to _newProofBytes.
-  // Modifies _proofUploading / _proofUploadFutures before the next build frame.
+  // On web: skip background upload to avoid CORS/auth hangs — save as base64.
+  // On mobile: upload in background with timeout via FirebaseUploadService.
   void _startProofUpload(Uint8List bytes, String fileName) {
+    if (kIsWeb) {
+      // Web: store a resolved future with empty URL; base64 used at save time
+      _proofUploading.add(false);
+      _proofUploadFutures.add(Future.value(''));
+      return;
+    }
     final mime = FirebaseUploadService.mimeForFile(fileName);
     final path = FirebaseUploadService.proofPath(fileName);
     final idx  = _proofUploading.length;
