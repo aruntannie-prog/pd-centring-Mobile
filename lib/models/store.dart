@@ -14,23 +14,38 @@ class AppStore extends ChangeNotifier {
   List<String> _suggestions = [];
   bool _loaded = false;
   bool _isReady = false;
+  String _selectedBranch = '';
 
-  List<Bill> get bills => _bills;
+  // Branch-filtered view of all bills
+  List<Bill> get bills => _selectedBranch.isEmpty
+      ? _bills
+      : _bills.where((b) => b.branch == _selectedBranch).toList();
   List<Customer> get customers => _customers;
   List<String> get suggestions => _suggestions;
   bool get loaded => _loaded;
   bool get isReady => _isReady;
+  String get selectedBranch => _selectedBranch;
 
-  // Stats
-  int get totalBills => _bills.length;
+  /// Returns bill count for a branch regardless of current branch filter.
+  int billCountForBranch(String branch) =>
+      _bills.where((b) => b.branch == branch).length;
+
+  Future<void> setSelectedBranch(String branch) async {
+    _selectedBranch = branch;
+    notifyListeners();
+    await LocalStorage.setPreference('selected_branch', branch);
+  }
+
+  // Stats — all based on branch-filtered `bills`
+  int get totalBills => bills.length;
   int get totalCustomers => _customers.length;
-  int get pendingCount => _bills
+  int get pendingCount => bills
       .where((b) =>
-          b.status == BillStatus.allPending || b.status == BillStatus.partial || b.status == BillStatus.dc)
+          !b.isBilled && b.status != BillStatus.allReturned && b.status != BillStatus.billedDC)
       .length;
   int get todayCount {
     final today = DateTime.now();
-    return _bills
+    return bills
         .where((b) =>
             b.billDate.year == today.year &&
             b.billDate.month == today.month &&
@@ -38,10 +53,36 @@ class AppStore extends ChangeNotifier {
         .length;
   }
 
-  List<Bill> get recentBills => _bills.take(5).toList();
+  List<Bill> get recentBills => bills.take(5).toList();
+
+  /// Total pending material quantity across all active bills in the current branch.
+  int get pendingMaterialsCount {
+    int count = 0;
+    for (final b in bills) {
+      if (b.status == BillStatus.allReturned) continue;
+      for (final m in b.materials) {
+        if (m.isPending) count += m.quantity.ceil();
+      }
+      for (final cb in b.columnBoxes) {
+        if (!cb.isReturned) count += cb.totalQty;
+      }
+      for (final rb in b.roundBoxes) {
+        if (!rb.isReturned) count += rb.totalQty;
+      }
+    }
+    return count;
+  }
+
+  /// Number of distinct customers who have pending materials.
+  int get customersWithPendingCount => bills
+      .where((b) =>
+          b.customerId.isNotEmpty && b.status != BillStatus.allReturned)
+      .map((b) => b.customerId)
+      .toSet()
+      .length;
 
   List<Bill> filtered(String? filter, String search) {
-    var list = List<Bill>.from(_bills);
+    var list = List<Bill>.from(bills); // branch-filtered
 
     if (filter != null && filter != 'all') {
       final now = DateTime.now();
@@ -56,13 +97,13 @@ class AppStore extends ChangeNotifier {
 
         switch (filter) {
           case 'pending':
-            return b.status == BillStatus.allPending || b.status == BillStatus.partial || b.status == BillStatus.dc;
+            return !b.isBilled && b.status != BillStatus.allReturned && b.status != BillStatus.billedDC;
           case 'partial':
             return b.status == BillStatus.partial;
           case 'returned':
             return b.status == BillStatus.allReturned;
           case 'dc':
-            return b.status == BillStatus.dc;
+            return b.type == BillType.dc && !b.isBilled;
           case 'overdue':
             return b.materials
                 .any((m) => m.isPending && m.dueDate.isBefore(today));
@@ -96,7 +137,10 @@ class AppStore extends ChangeNotifier {
 
   Future<void> initialize() async {
     print('AppStore: Initializing boot sequence...');
-    
+
+    // Load saved branch preference
+    _selectedBranch = LocalStorage.getPreference('selected_branch') ?? '';
+
     // 1. Try loading from Cache first for instant-on behavior
     final cachedBills = LocalStorage.getCache('bills');
     final cachedCustomers = LocalStorage.getCache('customers');
@@ -176,14 +220,42 @@ class AppStore extends ChangeNotifier {
     return _syncFromRemote();
   }
 
-  Future<void> markMaterialReturned(String billId, String materialId) async {
+  Future<void> markMaterialReturned(String billId, String materialId, DateTime returnDate) async {
     final bill = _bills.firstWhere((b) => b.id == billId);
     final idx = bill.materials.indexWhere((m) => m.id == materialId);
     if (idx != -1 && bill.materials[idx].isPending) {
-      bill.materials[idx] =
-          bill.materials[idx].copyWith(status: MaterialStatus.returned);
-      notifyListeners(); // Update UI optimistically
-      await FirestoreDb.insertOrUpdateBill(bill); // Sync to DB
+      bill.materials[idx] = bill.materials[idx].copyWith(
+        status: MaterialStatus.returned,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
+    }
+  }
+
+  Future<void> markColumnBoxReturned(String billId, String sizeKey, DateTime returnDate) async {
+    final bill = _bills.firstWhere((b) => b.id == billId);
+    final idx = bill.columnBoxes.indexWhere((b) => b.sizeKey == sizeKey);
+    if (idx != -1 && !bill.columnBoxes[idx].isReturned) {
+      bill.columnBoxes[idx] = bill.columnBoxes[idx].copyWith(
+        isReturned: true,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
+    }
+  }
+
+  Future<void> markRoundBoxReturned(String billId, String sizeKey, DateTime returnDate) async {
+    final bill = _bills.firstWhere((b) => b.id == billId);
+    final idx = bill.roundBoxes.indexWhere((b) => b.sizeKey == sizeKey);
+    if (idx != -1 && !bill.roundBoxes[idx].isReturned) {
+      bill.roundBoxes[idx] = bill.roundBoxes[idx].copyWith(
+        isReturned: true,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
     }
   }
 
@@ -257,7 +329,7 @@ class AppStore extends ChangeNotifier {
       if (cIdx != -1) {
         final c = _customers[cIdx];
         final updated = isAddressProof
-            ? c.copyWith(addressProofUrl: dataUrl)
+            ? c.copyWith(addressProofUrls: [...c.addressProofUrls, dataUrl])
             : c.copyWith(profilePhotoUrl: dataUrl);
 
         _customers[cIdx] = updated;
@@ -292,5 +364,30 @@ class AppStore extends ChangeNotifier {
       if (n > max) max = n;
     }
     return '$prefix #${max + 1}';
+  }
+
+  List<Bill> getUnbilledDCs(String customerId) {
+    return bills  // branch-filtered
+        .where((b) =>
+            b.customerId == customerId &&
+            b.type == BillType.dc &&
+            !b.isBilled)
+        .toList();
+  }
+
+  Future<void> consolidateDCsToBill(Bill bill, List<String> dcIds) async {
+    // 1. Add the main Bill
+    await addBill(bill);
+
+    // 2. Mark source DCs as billed
+    for (final id in dcIds) {
+      final idx = _bills.indexWhere((b) => b.id == id);
+      if (idx != -1) {
+        _bills[idx].isBilled = true;
+        _bills[idx].parentId = bill.id;
+        await FirestoreDb.insertOrUpdateBill(_bills[idx]);
+      }
+    }
+    notifyListeners();
   }
 }

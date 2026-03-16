@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter analyze:*)",
+      "Bash(flutter build:*)",
+      "Bash(firebase deploy:*)",
+      "Bash(powershell -Command \"\\(Get-Content lib\\\\screens\\\\new_bill.dart -Raw\\) -replace ''_buildSideSheets\\\\\\(\\\\\\)\\\\.fold\\\\\\(0\\\\.0, \\\\\\(s, e\\\\\\) => s \\\\+ e\\\\.sqft\\\\\\) \\\\* \\\\\\(double\\\\.tryParse\\\\\\(_ssRateCtrl\\\\.text\\\\\\) \\\\?\\\\? 0\\\\.0\\\\\\)'', ''_ssTotalAmount'' | Set-Content lib\\\\screens\\\\new_bill.dart\")",
+      "Bash(flutter pub:*)"
+    ]
+  }
+}

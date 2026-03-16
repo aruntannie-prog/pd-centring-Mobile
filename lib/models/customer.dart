@@ -14,7 +14,11 @@ class Customer {
   final int billCount;
   final bool isActive;
   final String profilePhotoUrl;
-  final String addressProofUrl;
+  final List<String> addressProofUrls;
+
+  /// Backward-compat getter — returns first proof URL or empty string.
+  String get addressProofUrl =>
+      addressProofUrls.isNotEmpty ? addressProofUrls.first : '';
 
   /// Universally converts any Google Drive link (including legacy dual || strings,
   /// share links, or thumbnails) into a permanent direct-access public URL.
@@ -42,6 +46,19 @@ class Customer {
     return cleanUrl;
   }
 
+  static List<String> _parseAddressProofUrls(Map<String, dynamic> j) {
+    // New array field takes priority
+    if (j['addressProofUrls'] is List) {
+      return (j['addressProofUrls'] as List)
+          .map((e) => normalizeDriveUrl(e.toString()))
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+    // Fall back to legacy single-string field
+    final single = normalizeDriveUrl(j['addressProofUrl']);
+    return single.isNotEmpty ? [single] : [];
+  }
+
   Customer({
     String? id,
     required this.name,
@@ -54,7 +71,7 @@ class Customer {
     this.billCount = 0,
     this.isActive = true,
     this.profilePhotoUrl = '',
-    this.addressProofUrl = '',
+    this.addressProofUrls = const [],
   }) : id = id ?? _uuid.v4();
 
   Map<String, dynamic> toJson() => {
@@ -69,7 +86,9 @@ class Customer {
         'billCount': billCount,
         'isActive': isActive,
         'profilePhotoUrl': profilePhotoUrl,
-        'addressProofUrl': addressProofUrl,
+        'addressProofUrls': addressProofUrls,
+        // Keep legacy key for backward compat with old Sheets/Firestore readers
+        'addressProofUrl': addressProofUrls.isNotEmpty ? addressProofUrls.first : '',
       };
 
   factory Customer.fromJson(Map<String, dynamic> j) => Customer(
@@ -84,8 +103,9 @@ class Customer {
         billCount: int.tryParse(j['billCount']?.toString() ?? '0') ?? 0,
         isActive: j['isActive']?.toString().toLowerCase() == 'true',
         profilePhotoUrl: normalizeDriveUrl(j['profilePhotoUrl']),
-        addressProofUrl: normalizeDriveUrl(j['addressProofUrl']),
+        addressProofUrls: _parseAddressProofUrls(j),
       );
+
   Customer copyWith({
     String? id,
     String? name,
@@ -98,7 +118,7 @@ class Customer {
     int? billCount,
     bool? isActive,
     String? profilePhotoUrl,
-    String? addressProofUrl,
+    List<String>? addressProofUrls,
   }) =>
       Customer(
         id: id ?? this.id,
@@ -112,6 +132,6 @@ class Customer {
         billCount: billCount ?? this.billCount,
         isActive: isActive ?? this.isActive,
         profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
-        addressProofUrl: addressProofUrl ?? this.addressProofUrl,
+        addressProofUrls: addressProofUrls ?? this.addressProofUrls,
       );
 }

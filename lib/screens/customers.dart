@@ -179,6 +179,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
                           final c = customers[i];
                           final avColors =
                               _avatarColors[i % _avatarColors.length];
+                          final liveBillCount = store.bills
+                              .where((b) => b.customerId == c.id)
+                              .length;
                           return GestureDetector(
                             onTap: () => widget.onCustomerTap(c),
                             child: Container(
@@ -326,7 +329,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                               border: Border.all(
                                                   color: colors.border,
                                                   width: 0.5)),
-                                          child: Text('${c.billCount} bills',
+                                          child: Text('$liveBillCount bill${liveBillCount == 1 ? '' : 's'}',
                                               style: jakarta(context,
                                                   size: 10,
                                                   weight: FontWeight.w800,
@@ -342,16 +345,19 @@ class _CustomersScreenState extends State<CustomersScreen> {
                                             if (!c.isActive)
                                               const SizedBox(width: 4),
                                             Text(
-                                                c.isActive
-                                                    ? 'Active'
-                                                    : 'Pending',
+                                                !c.isActive
+                                                    ? 'Pending'
+                                                    : liveBillCount == 0
+                                                        ? 'New'
+                                                        : 'Active',
                                                 style: jakarta(context,
                                                     size: 10,
                                                     weight: FontWeight.w800,
-                                                    color: c.isActive
-                                                        ? colors.teal
-                                                        : const Color(
-                                                            0xFFFF5555))),
+                                                    color: !c.isActive
+                                                        ? const Color(0xFFFF5555)
+                                                        : liveBillCount == 0
+                                                            ? colors.textSub
+                                                            : colors.teal)),
                                           ],
                                         ),
                                       ]), // Column

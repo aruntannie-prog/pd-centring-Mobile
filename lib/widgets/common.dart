@@ -30,10 +30,12 @@ class StatusPill extends StatelessWidget {
   }
 
   (Color, Color, String) _cfg(BillStatus s, AppColors c) => switch (s) {
-        BillStatus.allPending => (c.redBg, c.red, 'All Pending'),
+        BillStatus.allPending => (c.redBg, c.red, 'Pending'),
         BillStatus.partial => (c.amberBg, c.amber, 'Partial Return'),
         BillStatus.allReturned => (c.tealBg, c.teal, 'All Returned'),
-        BillStatus.dc => (c.indigoBg, c.indigo, 'DC Bill'),
+        BillStatus.dc => (c.indigoBg, c.indigo, 'Unbilled'),
+        BillStatus.billedDC => (c.tealBg, c.teal, 'Billed'),
+        BillStatus.overdue => (c.redBg, c.red, 'Overdue'),
       };
 }
 
@@ -106,18 +108,84 @@ class _DotState extends State<_Dot> with SingleTickerProviderStateMixin {
   }
 }
 
+// ── Unsaved Changes Dialog ──
+Future<bool> showUnsavedChangesDialog(BuildContext context) async {
+  final colors = context.appColors;
+  final result = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: colors.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(children: [
+        Icon(Icons.warning_amber_rounded, color: colors.amber, size: 22),
+        const SizedBox(width: 10),
+        Text('Unsaved Changes',
+            style: jakarta(context,
+                size: 16, weight: FontWeight.w800, color: colors.textMain)),
+      ]),
+      content: Text(
+        'You have unsaved changes. Are you sure you want to leave this screen?',
+        style: jakarta(context, size: 13, color: colors.textSub),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text('Stay',
+              style: jakarta(context,
+                  size: 14, weight: FontWeight.w700, color: colors.textMuted)),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: colors.red,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12)),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          ),
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text('Leave',
+              style: jakarta(context,
+                  size: 14,
+                  weight: FontWeight.w800,
+                  color: Colors.white)),
+        ),
+      ],
+    ),
+  );
+  return result ?? false;
+}
+
 // ── Bill Card ──
 class BillCard extends StatelessWidget {
   final Bill bill;
   final VoidCallback onTap;
   const BillCard({super.key, required this.bill, required this.onTap});
 
-  Color _borderColor(AppColors c) => switch (bill.status) {
-        BillStatus.allPending => c.red,
-        BillStatus.partial => c.amber,
-        BillStatus.allReturned => c.teal,
-        BillStatus.dc => c.indigo,
-      };
+  BillStatus _displayStatus() {
+    if (bill.type == BillType.dc) {
+      if (bill.isBilled) return BillStatus.billedDC;
+      if (bill.isOverdue) return BillStatus.overdue;
+      return BillStatus.dc;
+    }
+    return bill.status;
+  }
+
+  Color _borderColor(AppColors c) {
+    if (bill.type == BillType.dc) {
+      if (bill.isBilled) return c.teal;
+      if (bill.isOverdue) return c.red;
+      return c.indigo;
+    }
+    return switch (bill.status) {
+      BillStatus.allPending => c.red,
+      BillStatus.partial => c.amber,
+      BillStatus.allReturned => c.teal,
+      BillStatus.dc => c.indigo,
+      BillStatus.billedDC => c.teal,
+      BillStatus.overdue => c.red,
+    };
+  }
 
   String matEmoji(String name) => switch (name) {
         'Box' => '📦',
@@ -179,10 +247,12 @@ class BillCard extends StatelessWidget {
                                           size: 10,
                                           weight: FontWeight.w800,
                                           color: bill.type == BillType.dc
-                                              ? colors.indigo
-                                              : colors.teal)
+                                              ? (bill.isBilled
+                                                  ? colors.teal
+                                                  : colors.indigo)
+                                              : colors.brand)
                                       .copyWith(letterSpacing: 2.5)),
-                              StatusPill(bill.status),
+                              StatusPill(_displayStatus()),
                             ]),
                         const SizedBox(height: 8),
                         Text(bill.customerName,
@@ -194,6 +264,74 @@ class BillCard extends StatelessWidget {
                         Text('📍 ${bill.site} · ${bill.billDateFormatted}',
                             style: jakarta(context,
                                 size: 11, color: colors.textMuted)),
+                        if (bill.dueDateFormatted != null &&
+                            !bill.isClosed &&
+                            !(bill.type == BillType.dc && bill.isBilled)) ...[
+                          const SizedBox(height: 5),
+                          Row(children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 9, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: bill.isOverdue
+                                    ? colors.redBg
+                                    : colors.amberBg,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                    color: bill.isOverdue
+                                        ? colors.redBd
+                                        : colors.amberBd,
+                                    width: 0.5),
+                              ),
+                              child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.schedule_rounded,
+                                        size: 11,
+                                        color: bill.isOverdue
+                                            ? colors.red
+                                            : colors.amber),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      bill.isOverdue
+                                          ? 'Overdue ${bill.overdueDays}d · Due ${bill.dueDateFormatted}'
+                                          : 'Due: ${bill.dueDateFormatted}',
+                                      style: jakarta(context,
+                                          size: 10,
+                                          weight: FontWeight.w700,
+                                          color: bill.isOverdue
+                                              ? colors.red
+                                              : colors.amber),
+                                    ),
+                                  ]),
+                            ),
+                          ]),
+                        ],
+                        if (bill.type == BillType.dc && bill.isBilled) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: colors.tealBg,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: colors.tealBd, width: 0.5),
+                            ),
+                            child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.link_rounded,
+                                      size: 12, color: colors.teal),
+                                  const SizedBox(width: 5),
+                                  Text('Consolidated into final bill',
+                                      style: jakarta(context,
+                                          size: 10,
+                                          weight: FontWeight.w700,
+                                          color: colors.teal)),
+                                ]),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         ...bill.materials.map((m) => Padding(
                               padding: const EdgeInsets.only(bottom: 6),
@@ -203,12 +341,11 @@ class BillCard extends StatelessWidget {
                                 decoration: BoxDecoration(
                                   color: m.isReturned
                                       ? colors.tealBg
-                                      : colors.surfaceVariant,
+                                      : colors.redBg,
                                   borderRadius: BorderRadius.circular(10),
-                                  border: m.isReturned
-                                      ? Border.all(
-                                          color: colors.tealBd, width: 0.5)
-                                      : null,
+                                  border: Border.all(
+                                      color: m.isReturned ? colors.tealBd : colors.redBd,
+                                      width: 0.5),
                                 ),
                                 child: Row(
                                   mainAxisAlignment:

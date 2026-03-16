@@ -32,6 +32,7 @@ class FirestoreDb {
       for (final doc in snap.docs) {
         try {
           final data = doc.data() as Map<String, dynamic>;
+          
           // materials stored as JSON string for simplicity
           final rawMats = data['materials'];
           List<RentalMaterial> mats = [];
@@ -40,6 +41,25 @@ class FirestoreDb {
                 .map((m) => RentalMaterial.fromJson(m))
                 .toList();
           }
+
+          // columnBoxes also stored as JSON string
+          final rawCB = data['columnBoxes'];
+          List<ColumnSizeBlock> cBoxes = [];
+          if (rawCB is String && rawCB.startsWith('[')) {
+            cBoxes = (jsonDecode(rawCB) as List)
+                .map((b) => ColumnSizeBlock.fromJson(Map<String, dynamic>.from(b)))
+                .toList();
+          }
+
+          // roundBoxes stored as JSON string
+          final rawRB = data['roundBoxes'];
+          List<ColumnSizeBlock> rBoxes = [];
+          if (rawRB is String && rawRB.startsWith('[')) {
+            rBoxes = (jsonDecode(rawRB) as List)
+                .map((b) => ColumnSizeBlock.fromJson(Map<String, dynamic>.from(b)))
+                .toList();
+          }
+
           results.add(Bill(
             id: doc.id,
             billNumber: data['billNumber'] ?? '',
@@ -55,6 +75,17 @@ class FirestoreDb {
                 ? (data['billDate'] as Timestamp).toDate()
                 : DateTime.tryParse(data['billDate'] ?? '') ?? DateTime.now(),
             materials: mats,
+            columnBoxes: cBoxes,
+            roundBoxes: rBoxes,
+            vehicleChargeUp: (data['vehicleChargeUp'] as num?)?.toDouble() ?? 0.0,
+            vehicleChargeDown: (data['vehicleChargeDown'] as num?)?.toDouble() ?? 0.0,
+            labourChargeUp: (data['labourChargeUp'] as num?)?.toDouble() ?? 0.0,
+            labourChargeDown: (data['labourChargeDown'] as num?)?.toDouble() ?? 0.0,
+            gstEnabled: data['gstEnabled'] as bool? ?? false,
+            advancePaid: (data['advancePaid'] as num?)?.toDouble() ?? 0.0,
+            isBilled: data['isBilled'] as bool? ?? false,
+            parentId: data['parentId'] as String?,
+            linkedDcIds: List<String>.from(data['linkedDcIds'] ?? []),
           ));
         } catch (e) {
           print('FirestoreDb: Error parsing bill ${doc.id}: $e');
@@ -71,6 +102,11 @@ class FirestoreDb {
     try {
       final materialsJson =
           jsonEncode(bill.materials.map((m) => m.toJson()).toList());
+      final columnBoxesJson =
+          jsonEncode(bill.columnBoxes.map((b) => b.toJson()).toList());
+      final roundBoxesJson =
+          jsonEncode(bill.roundBoxes.map((b) => b.toJson()).toList());
+
       await _bills.doc(bill.id).set({
         'billNumber': bill.billNumber,
         'type': bill.type.name,
@@ -80,6 +116,17 @@ class FirestoreDb {
         'branch': bill.branch,
         'billDate': Timestamp.fromDate(bill.billDate),
         'materials': materialsJson,
+        'columnBoxes': columnBoxesJson,
+        'roundBoxes': roundBoxesJson,
+        'vehicleChargeUp': bill.vehicleChargeUp,
+        'vehicleChargeDown': bill.vehicleChargeDown,
+        'labourChargeUp': bill.labourChargeUp,
+        'labourChargeDown': bill.labourChargeDown,
+        'gstEnabled': bill.gstEnabled,
+        'advancePaid': bill.advancePaid,
+        'isBilled': bill.isBilled,
+        'parentId': bill.parentId,
+        'linkedDcIds': bill.linkedDcIds,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       print('FirestoreDb: ✅ Bill saved: ${bill.id}');

@@ -1,9 +1,11 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/customer.dart';
 import '../models/store.dart';
+import '../services/pdf_downloader.dart';
 import '../theme/app_theme.dart';
 import '../widgets/cors_image.dart';
 
@@ -11,11 +13,13 @@ class CustomerDetailScreen extends StatelessWidget {
   final Customer customer;
   final VoidCallback onBack;
   final Function(Customer) onEdit;
+  final VoidCallback onLedger;
   const CustomerDetailScreen(
       {super.key,
       required this.customer,
       required this.onBack,
-      required this.onEdit});
+      required this.onEdit,
+      required this.onLedger});
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +176,57 @@ class CustomerDetailScreen extends StatelessWidget {
                                     size: 48, color: colors.textMuted)),
                           ),
                         ))),
+              // Material Ledger action card
+              GestureDetector(
+                onTap: onLedger,
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF14224A), Color(0xFF1E3A6E)],
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                          color: const Color(0xFF14224A).withOpacity(0.3),
+                          blurRadius: 20,
+                          offset: const Offset(0, 8)),
+                    ],
+                  ),
+                  child: Row(children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(14)),
+                      child: const Icon(Icons.inventory_2_outlined,
+                          size: 26, color: Colors.white),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                          Text('Material Ledger',
+                              style: jakarta(context,
+                                  size: 15,
+                                  weight: FontWeight.w800,
+                                  color: Colors.white)),
+                          const SizedBox(height: 3),
+                          Text('Track given, returned & pending items',
+                              style: jakarta(context,
+                                  size: 11,
+                                  color: Colors.white.withOpacity(0.6))),
+                        ])),
+                    Icon(Icons.arrow_forward_ios_rounded,
+                        size: 14, color: Colors.white.withOpacity(0.6)),
+                  ]),
+                ),
+              ),
+
               // Contact Box
               _buildSectionTile('Contact Info', Icons.phone_android_rounded,
                   colors, context, [
@@ -206,8 +261,13 @@ class CustomerDetailScreen extends StatelessWidget {
                         : liveCustomer.referBy,
                     colors,
                     context),
-                _buildRow('Total Bills', '${liveCustomer.billCount}', colors,
-                    context),
+                Builder(builder: (ctx) {
+                  final liveCount = store.bills
+                      .where((b) => b.customerId == liveCustomer.id)
+                      .length;
+                  return _buildRow(
+                      'Total Bills', '$liveCount', colors, context);
+                }),
                 _buildRow(
                     'Status',
                     liveCustomer.isActive ? 'Active' : 'Inactive',
@@ -217,75 +277,75 @@ class CustomerDetailScreen extends StatelessWidget {
                         ? colors.teal
                         : const Color(0xFFFF5555)),
               ]),
-              if (liveCustomer.addressProofUrl.isNotEmpty) ...[
+              if (liveCustomer.addressProofUrls.isNotEmpty) ...[
                 const SizedBox(height: 16),
                 _buildSectionTile(
                     'Documents', Icons.file_present_rounded, colors, context, [
-                  Text('Address Proof Attached',
+                  Text(
+                      '${liveCustomer.addressProofUrls.length} Address Proof${liveCustomer.addressProofUrls.length > 1 ? 's' : ''} Attached',
                       style: jakarta(context,
                           size: 13,
                           weight: FontWeight.w700,
                           color: colors.brand)),
                   const SizedBox(height: 12),
-                  Builder(builder: (context) {
-                    final String url = liveCustomer.addressProofUrl;
-                    return GestureDetector(
-                      onTap: () {
-                        showDialog(
-                            context: context,
-                            builder: (ctx) => Dialog(
-                                  backgroundColor: Colors.transparent,
-                                  insetPadding: EdgeInsets.zero,
-                                  child: InteractiveViewer(
-                                    child: CORSResilientImage(
+                  ...liveCustomer.addressProofUrls.asMap().entries.map((entry) {
+                    final idx = entry.key;
+                    final url = entry.value;
+                    final isPdf = _isProofPdf(url);
+                    final label = liveCustomer.addressProofUrls.length > 1
+                        ? 'PROOF ${idx + 1}'
+                        : 'ADDRESS PROOF';
+                    return Padding(
+                      padding: EdgeInsets.only(
+                          bottom: idx < liveCustomer.addressProofUrls.length - 1
+                              ? 12
+                              : 0),
+                      child: GestureDetector(
+                        onTap: () => _openProof(context, url, colors),
+                        child: Container(
+                          height: 160,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: colors.surfaceVariant,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: colors.border, width: 1),
+                          ),
+                          clipBehavior: Clip.hardEdge,
+                          child: isPdf
+                              ? _buildPdfTile(label, colors, context)
+                              : Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    CORSResilientImage(
                                       imageUrl: url,
+                                      fit: BoxFit.cover,
                                       placeholder: const Center(
-                                          child:
-                                              CircularProgressIndicator()),
-                                      errorWidget: Center(
-                                          child: Icon(Icons.error_outline,
-                                              size: 48,
-                                              color: colors.textSub)),
+                                          child: CircularProgressIndicator()),
+                                      errorWidget: const Center(
+                                          child: Icon(Icons.broken_image,
+                                              size: 36)),
                                     ),
-                                  ),
-                                ));
-                      },
-                      child: Container(
-                        height: 160,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: colors.border, width: 1),
-                        ),
-                        clipBehavior: Clip.hardEdge,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            CORSResilientImage(
-                              imageUrl: url,
-                              fit: BoxFit.cover,
-                              placeholder: const Center(
-                                  child: CircularProgressIndicator()),
-                              errorWidget: const Center(
-                                  child: Icon(Icons.broken_image, size: 36)),
-                            ),
-                            Positioned(
-                              right: 12,
-                              bottom: 12,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.6),
-                                    borderRadius: BorderRadius.circular(12)),
-                                child: Text('TAP TO ENLARGE',
-                                    style: jakarta(context,
-                                        size: 9,
-                                        weight: FontWeight.w800,
-                                        color: Colors.white)),
-                              ),
-                            )
-                          ],
+                                    Positioned(
+                                      right: 12,
+                                      bottom: 12,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 10, vertical: 6),
+                                        decoration: BoxDecoration(
+                                            color:
+                                                Colors.black.withOpacity(0.6),
+                                            borderRadius:
+                                                BorderRadius.circular(12)),
+                                        child: Text(
+                                            '$label · TAP TO ENLARGE',
+                                            style: jakarta(context,
+                                                size: 9,
+                                                weight: FontWeight.w800,
+                                                color: Colors.white)),
+                                      ),
+                                    )
+                                  ],
+                                ),
                         ),
                       ),
                     );
@@ -297,6 +357,99 @@ class CustomerDetailScreen extends StatelessWidget {
         ),
       ]),
     );
+  }
+
+  bool _isProofPdf(String url) =>
+      url.startsWith('data:application/pdf') ||
+      url.toLowerCase().endsWith('.pdf');
+
+  Widget _buildPdfTile(String label, AppColors colors, BuildContext context) {
+    return Container(
+      color: colors.surfaceVariant,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE53935).withOpacity(0.12),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.picture_as_pdf_rounded,
+                color: Color(0xFFE53935), size: 36),
+          ),
+          const SizedBox(height: 10),
+          Text(label,
+              style: jakarta(context,
+                  size: 11, weight: FontWeight.w700, color: colors.textMain)),
+          const SizedBox(height: 4),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(kIsWeb ? Icons.open_in_new_rounded : Icons.download_rounded,
+                  size: 12, color: colors.brand),
+              const SizedBox(width: 4),
+              Text(kIsWeb ? 'Tap to open' : 'Tap to download',
+                  style: jakarta(context, size: 10, color: colors.brand)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openProof(BuildContext context, String url, AppColors colors) {
+    if (_isProofPdf(url)) {
+      _openOrDownloadPdf(context, url, colors);
+    } else {
+      showDialog(
+          context: context,
+          builder: (ctx) => Dialog(
+                backgroundColor: Colors.transparent,
+                insetPadding: EdgeInsets.zero,
+                child: InteractiveViewer(
+                  child: CORSResilientImage(
+                    imageUrl: url,
+                    placeholder:
+                        const Center(child: CircularProgressIndicator()),
+                    errorWidget: Center(
+                        child: Icon(Icons.error_outline,
+                            size: 48, color: colors.textSub)),
+                  ),
+                ),
+              ));
+    }
+  }
+
+  void _openOrDownloadPdf(
+      BuildContext context, String url, AppColors colors) async {
+    try {
+      // Decode base64 data URI  →  raw bytes
+      final comma = url.indexOf(',');
+      if (comma == -1) return;
+      final b64 = url.substring(comma + 1);
+      final bytes = base64Decode(b64);
+      if (kIsWeb) {
+        await downloadPdfWeb(bytes, 'address_proof.pdf');
+      } else {
+        // Native: show a snack
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('PDF preview not supported on this platform'),
+          backgroundColor: colors.brand,
+          behavior: SnackBarBehavior.floating,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Could not open PDF: $e'),
+        backgroundColor: Colors.redAccent,
+        behavior: SnackBarBehavior.floating,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   Widget _buildSectionTile(String title, IconData icon, AppColors colors,

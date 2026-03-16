@@ -1,3 +1,4 @@
+// ignore_for_file: uri_does_not_exist, undefined_annotation
 import 'dart:js_util' as js_util;
 import 'package:js/js.dart';
 import 'dart:convert';
@@ -19,4 +20,7 @@ Future<List<int>?> cropFaceWeb(List<int> imageBytes, int targetSize) async {
     print('SmartCropperWeb Error: $e');
     return null;
   }
+}
+Future<List<int>> nativeCropToFace(List<int> imageBytes, int targetSize) async {
+  return imageBytes; // Web logic is handled by SmartCropper.cropToFace kIsWeb branch
 }

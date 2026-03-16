@@ -11,12 +11,14 @@ class DashboardScreen extends StatelessWidget {
   final Function(Bill) onBillTap;
   final VoidCallback onAddCustomer;
   final VoidCallback onNewBill;
+  final VoidCallback onSwitchBranch;
   const DashboardScreen(
       {super.key,
       required this.onNav,
       required this.onBillTap,
       required this.onAddCustomer,
-      required this.onNewBill});
+      required this.onNewBill,
+      required this.onSwitchBranch});
 
   static String getTodayString() {
     final now = DateTime.now();
@@ -89,25 +91,64 @@ class DashboardScreen extends StatelessWidget {
     final store = context.watch<AppStore>();
     final colors = context.appColors;
 
+    final branch = store.selectedBranch;
+    final isKov = branch == 'Kovilambakkam';
+    final branchColor = isKov ? colors.brand : colors.teal;
+
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // Header
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: colors.surfaceVariant,
-                border: Border.all(color: colors.border, width: 0.5),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Text('⌂   HOME',
-                  style: jakarta(context,
-                          size: 9,
-                          weight: FontWeight.w800,
-                          color: colors.textSub)
-                      .copyWith(letterSpacing: 2)),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: colors.surfaceVariant,
+                    border: Border.all(color: colors.border, width: 0.5),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: Text('⌂   HOME',
+                      style: jakarta(context,
+                              size: 9,
+                              weight: FontWeight.w800,
+                              color: colors.textSub)
+                          .copyWith(letterSpacing: 2)),
+                ),
+                const Spacer(),
+                // Branch chip — tap to switch
+                GestureDetector(
+                  onTap: onSwitchBranch,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: branchColor.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: branchColor.withOpacity(0.3), width: 1),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(isKov ? Icons.location_city_rounded : Icons.storefront_rounded,
+                            size: 12, color: branchColor),
+                        const SizedBox(width: 5),
+                        Text(
+                          isKov ? 'Kovilambakkam' : 'Rathinamangalam',
+                          style: jakarta(context,
+                                  size: 9,
+                                  weight: FontWeight.w800,
+                                  color: branchColor)
+                              .copyWith(letterSpacing: 0.5),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(Icons.swap_horiz_rounded, size: 12, color: branchColor),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
             Text.rich(TextSpan(children: [
@@ -153,11 +194,6 @@ class DashboardScreen extends StatelessWidget {
                     onNav: onNav,
                     onAddCustomer: onAddCustomer,
                     onNewBill: onNewBill),
-                const SizedBox(height: 24),
-                SectionHeader('Recent Bills',
-                    action: 'All →', onAction: () => onNav(1)),
-                ...store.recentBills
-                    .map((b) => BillCard(bill: b, onTap: () => onBillTap(b))),
               ]),
             ),
           ),
@@ -261,12 +297,26 @@ class _HeroCard extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
                 child: GestureDetector(
-                  onTap: () => onNav(3), // 'Filter' handles Pending logic or navigate to Bills depending on current app design
+                  onTap: () => onNav(1),
                   child: _StatBox(
                       value: '${store.pendingCount}',
-                      label: 'Pending',
+                      label: 'Pending Bills',
                       isRed: true),
                 )),
+          ]),
+          const SizedBox(height: 12),
+          Row(children: [
+            Expanded(
+                child: _StatBox(
+                    value: '${store.pendingMaterialsCount}',
+                    label: 'Pending Items',
+                    isAmber: true)),
+            const SizedBox(width: 12),
+            Expanded(
+                child: _StatBox(
+                    value: '${store.customersWithPendingCount}',
+                    label: 'Customers',
+                    isAmber: true)),
           ]),
         ]),
       ]),
@@ -277,37 +327,53 @@ class _HeroCard extends StatelessWidget {
 class _StatBox extends StatelessWidget {
   final String value, label;
   final bool isRed;
+  final bool isAmber;
   const _StatBox(
-      {required this.value, required this.label, this.isRed = false});
+      {required this.value,
+      required this.label,
+      this.isRed = false,
+      this.isAmber = false});
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: isRed
-              ? const Color(0xFFFF4D5E).withOpacity(.15)
-              : Colors.white.withOpacity(.08),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: isRed
-                  ? const Color(0xFFFF4D5E).withOpacity(.3)
-                  : Colors.white.withOpacity(.12),
-              width: 0.5),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(value,
-              style: GoogleFonts.playfairDisplay(
-                  fontSize: 32,
-                  fontWeight: FontWeight.w900,
-                  color: isRed ? const Color(0xFFFF8A97) : Colors.white)),
-          const SizedBox(height: 4),
-          Text(label.toUpperCase(),
-              style: jakarta(context,
-                      size: 9,
-                      weight: FontWeight.w800,
-                      color: Colors.white.withOpacity(.6))
-                  .copyWith(letterSpacing: 1.5)),
-        ]),
-      );
+  Widget build(BuildContext context) {
+    final Color valColor = isRed
+        ? const Color(0xFFFF8A97)
+        : isAmber
+            ? const Color(0xFFFFCC70)
+            : Colors.white;
+    final Color bgColor = isRed
+        ? const Color(0xFFFF4D5E).withOpacity(.15)
+        : isAmber
+            ? const Color(0xFFFFB800).withOpacity(.12)
+            : Colors.white.withOpacity(.08);
+    final Color borderColor = isRed
+        ? const Color(0xFFFF4D5E).withOpacity(.3)
+        : isAmber
+            ? const Color(0xFFFFB800).withOpacity(.3)
+            : Colors.white.withOpacity(.12);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 0.5),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(value,
+            style: GoogleFonts.playfairDisplay(
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                color: valColor)),
+        const SizedBox(height: 4),
+        Text(label.toUpperCase(),
+            style: jakarta(context,
+                    size: 9,
+                    weight: FontWeight.w800,
+                    color: Colors.white.withOpacity(.6))
+                .copyWith(letterSpacing: 1.5)),
+      ]),
+    );
+  }
 }
 
 class _TodayBanner extends StatelessWidget {

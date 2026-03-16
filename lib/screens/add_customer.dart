@@ -8,10 +8,14 @@ import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 
 import '../widgets/cors_image.dart';
+import '../widgets/common.dart' show showUnsavedChangesDialog;
 import '../models/customer.dart';
+import '../services/pdf_downloader.dart';
 import '../models/store.dart';
 import '../services/smart_cropper.dart';
 import '../services/image_compressor.dart';
+import '../services/ocr_service.dart';
+import '../services/firebase_upload_service.dart';
 
 class AddCustomerScreen extends StatefulWidget {
   final VoidCallback onBack;
@@ -34,22 +38,31 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
   final _gstCtrl = TextEditingController();
   final _referCtrl = TextEditingController();
 
+  // Profile photo
   String? _profileUrl;
-  String? _addressUrl;
-  Uint8List? _localProfileBytes;
-  Uint8List? _originalProfileBytes;
-  Uint8List? _rawAddressBytes;
-  Uint8List? _localAddressBytes;
-  String? _addressFileName;
-  bool _isSaving = false;
+  Uint8List? _localProfileBytes;     // face-cropped (saved to Firestore)
+  Uint8List? _originalProfileBytes;  // full original (shown in preview)
   bool _showLightbox = false;
+
+  // Background upload state — files start uploading immediately when picked
+  Future<String>? _profileUploadFuture;
+  bool _profileUploading = false;
+  final List<Future<String>> _proofUploadFutures = [];
+  final List<bool> _proofUploading = [];
+
+  // Address proofs (multi-upload)
+  List<String> _existingProofUrls = [];   // loaded from initialCustomer
+  List<Uint8List> _newProofBytes = [];    // picked in this session
+  List<String> _newProofFileNames = [];   // filenames for new picks
+
+  bool _isSaving = false;
+  bool _isOcrRunning = false;
 
   late final AnimationController _shimmerCtrl;
   late final AnimationController _staggerCtrl;
   late final Animation<double> _headerAnim;
   late final Animation<double> _uploadsAnim;
   late final Animation<double> _bodyAnim;
-  late final Animation<double> _ctaAnim;
 
   // ── Design tokens ──────────────────────────────────────────────────────────
   static const cBg     = Color(0xFF0A0F1E);
@@ -73,7 +86,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     _headerAnim  = _stagger(0.00, 0.35);
     _uploadsAnim = _stagger(0.15, 0.50);
     _bodyAnim    = _stagger(0.30, 0.75);
-    _ctaAnim     = _stagger(0.55, 1.00);
 
     if (widget.initialCustomer != null) {
       final c = widget.initialCustomer!;
@@ -85,8 +97,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
       _gstCtrl.text      = c.gstNumber;
       _referCtrl.text    = c.referBy;
       _profileUrl = c.profilePhotoUrl.isNotEmpty ? c.profilePhotoUrl : null;
-      _addressUrl = c.addressProofUrl.isNotEmpty ? c.addressProofUrl : null;
-      if (_addressUrl != null) _addressFileName = 'proof.jpg';
+      _existingProofUrls = List.from(c.addressProofUrls);
     }
   }
 
@@ -119,29 +130,359 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     }
     if (!mounted) return;
     setState(() {
-      _localProfileBytes   = crop;
+      _localProfileBytes    = crop;
       _originalProfileBytes = orig;
+      _profileUploading     = true;
+      _profileUploadFuture  = null;
+    });
+    // Upload the full original image to Firebase Storage in background
+    final path = FirebaseUploadService.profilePath();
+    _profileUploadFuture = FirebaseUploadService.uploadBytes(
+      orig, path, contentType: 'image/jpeg',
+    ).then((url) {
+      if (mounted) setState(() => _profileUploading = false);
+      return url;
+    }).catchError((e) {
+      debugPrint('Profile upload error: $e');
+      if (mounted) setState(() => _profileUploading = false);
+      return ''; // empty → will fall back to base64 at save time
     });
   }
 
-  // ── Pick address proof (any file) ──────────────────────────────────────────
-  Future<void> _pickAddressProof() async {
-    final result = await FilePicker.platform
-        .pickFiles(type: FileType.any, withData: true);
-    if (result == null || result.files.isEmpty || !mounted) return;
-    final f = result.files.first;
-    final bytes = f.bytes;
-    if (bytes == null) return;
-    Uint8List final_ = bytes;
-    if (!kIsWeb && _isImageExt(f.name)) {
-      final_ = await ImageCompressor.compress(bytes, maxWidth: 1600);
+  // ── Pick address proof from camera / gallery ──────────────────────────────
+  Future<void> _pickAddressProofFromImage(ImageSource source) async {
+    final file = await ImagePicker().pickImage(
+        source: source, imageQuality: kIsWeb ? 40 : 70);
+    if (file == null || !mounted) return;
+
+    final isFirstEver = _existingProofUrls.isEmpty && _newProofBytes.isEmpty;
+
+    final bytes = await file.readAsBytes();
+    Uint8List processed = bytes;
+    if (!kIsWeb) {
+      processed = await ImageCompressor.compress(bytes, maxWidth: 1600);
     }
+    final name = 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
+
     if (!mounted) return;
     setState(() {
-      _rawAddressBytes   = final_;
-      _localAddressBytes = final_;
-      _addressFileName   = f.name;
+      _newProofBytes.add(processed);
+      _newProofFileNames.add(name);
     });
+    _startProofUpload(processed, name);
+
+    if (isFirstEver) {
+      _runOcrOnFirstProof(processed, name);
+    }
+  }
+
+  // ── Bottom sheet to pick proof source ─────────────────────────────────────
+  void _showAddProofSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cSurf,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 40, height: 4,
+            decoration: BoxDecoration(
+                color: cBorder, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(height: 24),
+          Text('Add Address Proof',
+              style: GoogleFonts.sora(
+                  fontSize: 17, fontWeight: FontWeight.w800, color: cText)),
+          const SizedBox(height: 8),
+          Text('Take a photo, choose from gallery, or upload a file',
+              style: GoogleFonts.dmSans(fontSize: 13, color: cMuted),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 28),
+          Row(children: [
+            Expanded(child: _sheetBtn(Icons.camera_alt_rounded, 'Camera', () {
+              Navigator.pop(ctx);
+              _pickAddressProofFromImage(ImageSource.camera);
+            })),
+            const SizedBox(width: 10),
+            Expanded(child: _sheetBtn(Icons.photo_library_rounded, 'Gallery', () {
+              Navigator.pop(ctx);
+              _pickAddressProofFromImage(ImageSource.gallery);
+            })),
+            const SizedBox(width: 10),
+            Expanded(child: _sheetBtn(Icons.upload_file_rounded, 'File', () {
+              Navigator.pop(ctx);
+              _pickAddressProofs();
+            })),
+          ]),
+          const SizedBox(height: 12),
+        ]),
+      ),
+    );
+  }
+
+  // ── Pick address proofs (any file, multiple allowed) ───────────────────────
+  Future<void> _pickAddressProofs() async {
+    final result = await FilePicker.platform.pickFiles(
+        type: FileType.any, withData: true, allowMultiple: true);
+    if (result == null || result.files.isEmpty || !mounted) return;
+
+    // Capture whether this will be the very first proof before we add anything
+    final isFirstEver = _existingProofUrls.isEmpty && _newProofBytes.isEmpty;
+
+    final newBytes = <Uint8List>[];
+    final newNames = <String>[];
+    for (final f in result.files) {
+      final bytes = f.bytes;
+      if (bytes == null) continue;
+      Uint8List processed = bytes;
+      if (!kIsWeb && _isImageExt(f.name)) {
+        processed = await ImageCompressor.compress(bytes, maxWidth: 1600);
+      }
+      newBytes.add(processed);
+      newNames.add(f.name);
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _newProofBytes.addAll(newBytes);
+      _newProofFileNames.addAll(newNames);
+    });
+    // Start background uploads for each newly picked file
+    for (int i = 0; i < newBytes.length; i++) {
+      _startProofUpload(newBytes[i], newNames[i]);
+    }
+
+    // Run OCR on the first-ever uploaded image proof
+    if (isFirstEver && newBytes.isNotEmpty && _isImageExt(newNames.first)) {
+      _runOcrOnFirstProof(newBytes.first, newNames.first);
+    }
+  }
+
+  // ── Background proof upload helper ────────────────────────────────────────
+  // Called synchronously right after setState adds to _newProofBytes.
+  // Modifies _proofUploading / _proofUploadFutures before the next build frame.
+  void _startProofUpload(Uint8List bytes, String fileName) {
+    final mime = FirebaseUploadService.mimeForFile(fileName);
+    final path = FirebaseUploadService.proofPath(fileName);
+    final idx  = _proofUploading.length;
+    _proofUploading.add(true);
+    _proofUploadFutures.add(
+      FirebaseUploadService.uploadBytes(bytes, path, contentType: mime).then((url) {
+        if (mounted) setState(() {
+          if (idx < _proofUploading.length) _proofUploading[idx] = false;
+        });
+        return url;
+      }).catchError((Object e) {
+        debugPrint('Proof upload error: $e');
+        if (mounted) setState(() {
+          if (idx < _proofUploading.length) _proofUploading[idx] = false;
+        });
+        return ''; // empty → fall back to base64 at save time
+      }),
+    );
+  }
+
+  // ── OCR on first proof ─────────────────────────────────────────────────────
+  Future<void> _runOcrOnFirstProof(Uint8List bytes, String filename) async {
+    setState(() => _isOcrRunning = true);
+    final ext = filename.split('.').last.toLowerCase();
+    final mime = ext == 'png' ? 'image/png' : 'image/jpeg';
+    final result = await OcrService.extractFromImage(bytes, mime);
+    if (!mounted) return;
+    setState(() => _isOcrRunning = false);
+    if (result != null && result.hasData) {
+      _showOcrResultSheet(result);
+    }
+  }
+
+  // ── OCR result bottom sheet ────────────────────────────────────────────────
+  void _showOcrResultSheet(OcrResult result) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cSurf,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(
+          left: 24, right: 24, top: 24,
+          bottom: 24 + MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(
+                      color: cBorder, borderRadius: BorderRadius.circular(2))),
+            ),
+            const SizedBox(height: 20),
+            // Header
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                    color: cAccent.withOpacity(0.12),
+                    shape: BoxShape.circle),
+                child: const Icon(Icons.document_scanner_outlined,
+                    color: cAccent, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Document Scanned',
+                    style: GoogleFonts.sora(
+                        color: cText, fontSize: 16, fontWeight: FontWeight.w700)),
+                Text('Tap to apply extracted details',
+                    style: GoogleFonts.dmSans(color: cMuted, fontSize: 12)),
+              ]),
+            ]),
+            const SizedBox(height: 20),
+            // Extracted fields
+            if (result.hasName) ...[
+              _ocrFieldTile(
+                ctx,
+                icon: Icons.person_outline_rounded,
+                label: 'Name',
+                value: result.name,
+                onApply: () {
+                  _nameCtrl.text = result.name;
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: const Text('Name applied from document'),
+                    backgroundColor: cAccent.withOpacity(0.85),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ));
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+            if (result.hasAddress) ...[
+              _ocrFieldTile(
+                ctx,
+                icon: Icons.location_on_outlined,
+                label: 'Address',
+                value: result.address,
+                onApply: () {
+                  _addressCtrl.text = result.address;
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: const Text('Address applied from document'),
+                    backgroundColor: cAccent.withOpacity(0.85),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ));
+                },
+              ),
+              const SizedBox(height: 10),
+            ],
+            // Fill Both button
+            if (result.hasName && result.hasAddress) ...[
+              const SizedBox(height: 6),
+              GestureDetector(
+                onTap: () {
+                  _nameCtrl.text = result.name;
+                  _addressCtrl.text = result.address;
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content:
+                        const Text('Name & Address applied from document'),
+                    backgroundColor: cAccent.withOpacity(0.85),
+                    behavior: SnackBarBehavior.floating,
+                    duration: const Duration(seconds: 2),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ));
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                        colors: [Color(0xFF0AAD96), Color(0xFF0ECFB0)]),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('Apply Both Fields',
+                      style: GoogleFonts.sora(
+                          color: const Color(0xFF060E14),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+            const SizedBox(height: 8),
+            // Dismiss
+            GestureDetector(
+              onTap: () => Navigator.pop(ctx),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                alignment: Alignment.center,
+                child: Text('Skip',
+                    style: GoogleFonts.dmSans(color: cMuted, fontSize: 13)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _ocrFieldTile(BuildContext ctx,
+      {required IconData icon,
+      required String label,
+      required String value,
+      required VoidCallback onApply}) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cBg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cBorder),
+      ),
+      child: Row(children: [
+        Icon(icon, color: cAccent, size: 18),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label,
+                  style: GoogleFonts.dmSans(
+                      color: cLabel, fontSize: 10, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 3),
+              Text(value,
+                  style: GoogleFonts.dmSans(
+                      color: cText, fontSize: 13, fontWeight: FontWeight.w500),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        GestureDetector(
+          onTap: onApply,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: cAccent.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: cAccent.withOpacity(0.3)),
+            ),
+            child: Text('Apply',
+                style: GoogleFonts.dmSans(
+                    color: cAccent, fontSize: 11, fontWeight: FontWeight.w700)),
+          ),
+        ),
+      ]),
+    );
   }
 
   bool _isImageExt(String name) =>
@@ -162,25 +503,36 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     setState(() => _isSaving = true);
 
     String pUrl = _profileUrl ?? '';
-    String aUrl = _addressUrl ?? '';
+    final allProofUrls = <String>[..._existingProofUrls];
 
     try {
-      if (_localProfileBytes != null) {
-        pUrl = 'data:image/jpeg;base64,${base64Encode(_localProfileBytes!)}';
+      // Await background profile upload (should already be done by the time
+      // the user fills the form and taps Save — usually instant wait here).
+      if (_profileUploadFuture != null) {
+        pUrl = await _profileUploadFuture!;
       }
-      if (_rawAddressBytes != null) {
-        final ext = _addressFileName?.split('.').last.toLowerCase() ?? 'pdf';
-        final mime = ext == 'pdf'
-            ? 'application/pdf'
-            : ext == 'png'
-                ? 'image/png'
-                : 'image/jpeg';
-        aUrl = 'data:$mime;base64,${base64Encode(_rawAddressBytes!)}';
+      // Fallback: base64 if upload failed or was never started
+      if (pUrl.isEmpty && (_localProfileBytes != null || _originalProfileBytes != null)) {
+        final toSave = _originalProfileBytes ?? _localProfileBytes!;
+        pUrl = 'data:image/jpeg;base64,${base64Encode(toSave)}';
+      }
+
+      // Await background proof uploads, fallback to base64 per proof if needed
+      for (int i = 0; i < _newProofBytes.length; i++) {
+        String proofUrl = '';
+        if (i < _proofUploadFutures.length) {
+          proofUrl = await _proofUploadFutures[i];
+        }
+        if (proofUrl.isEmpty) {
+          final mime = FirebaseUploadService.mimeForFile(_newProofFileNames[i]);
+          proofUrl = 'data:$mime;base64,${base64Encode(_newProofBytes[i])}';
+        }
+        allProofUrls.add(proofUrl);
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Encoding failed: $e')));
+            SnackBar(content: Text('Upload failed: $e')));
         setState(() => _isSaving = false);
       }
       return;
@@ -198,7 +550,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
       gstNumber: _gstCtrl.text.trim(),
       referBy: _referCtrl.text.trim(),
       profilePhotoUrl: pUrl,
-      addressProofUrl: aUrl,
+      addressProofUrls: allProofUrls,
     );
 
     final store = context.read<AppStore>();
@@ -220,6 +572,22 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     widget.onSave != null ? widget.onSave!(customer) : widget.onBack();
   }
 
+  bool get _isDirty =>
+      _nameCtrl.text.isNotEmpty ||
+      _phoneCtrl.text.isNotEmpty ||
+      _siteCtrl.text.isNotEmpty ||
+      _addressCtrl.text.isNotEmpty;
+
+  Future<void> _handleBack() async {
+    if (!_isDirty) {
+      widget.onBack();
+      return;
+    }
+    final leave = await showUnsavedChangesDialog(context);
+    if (leave && mounted) widget.onBack();
+  }
+
+
   // ══════════════════════════════════════════════════════════════════════════
   // BUILD
   // ══════════════════════════════════════════════════════════════════════════
@@ -227,6 +595,12 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: cBg,
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+          child: _buildSaveButton(),
+        ),
+      ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
@@ -250,18 +624,20 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
                   // 1. Header
                   _FadeUp(animation: _headerAnim, child: _buildHeader()),
 
-                  // 2. Upload cards (flex-shrink:0)
+                  // 2. Upload section (profile + address proofs)
                   _FadeUp(
                     animation: _uploadsAnim,
                     child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 0),
-                      child: SizedBox(
-                        height: 100,
-                        child: Row(children: [
-                          Expanded(child: _buildProfileCard()),
-                          const SizedBox(width: 10),
-                          Expanded(child: _buildAddressCard()),
-                        ]),
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Profile card: circular avatar
+                          Center(child: _buildProfileCard()),
+                          const SizedBox(height: 16),
+                          // Address proofs section (header + scrollable row)
+                          _buildAddressProofsRow(),
+                        ],
                       ),
                     ),
                   ),
@@ -271,7 +647,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
                     child: _FadeUp(
                       animation: _bodyAnim,
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(18, 16, 18, 0),
+                        padding: const EdgeInsets.fromLTRB(18, 4, 18, 0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
@@ -304,14 +680,6 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
                     ),
                   ),
 
-                  // 4. Save button (inline, NOT fixed)
-                  _FadeUp(
-                    animation: _ctaAnim,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
-                      child: _buildSaveButton(),
-                    ),
-                  ),
                 ],
               ),
 
@@ -338,7 +706,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
         child: Row(children: [
           GestureDetector(
-            onTap: widget.onBack,
+            onTap: _handleBack,
             behavior: HitTestBehavior.opaque,
             child: Container(
               width: 36, height: 36,
@@ -369,170 +737,392 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
         ]),
       );
 
-  // ── Profile card ───────────────────────────────────────────────────────────
+  // ── Profile card (circular avatar, 110px) ─────────────────────────────────
   Widget _buildProfileCard() {
+    const size = 110.0;
     final hasImg = _localProfileBytes != null ||
         (_profileUrl != null && _profileUrl!.isNotEmpty);
-    return GestureDetector(
-      onTap: () {
-        if (hasImg) {
-          setState(() => _showLightbox = true);
-        } else {
-          _showPhotoSheet();
-        }
-      },
-      child: _cardWrapper(
-        filled: hasImg,
-        child: hasImg
-            ? Stack(fit: StackFit.expand, children: [
-                _localProfileBytes != null
-                    ? Image.memory(_localProfileBytes!,
-                        fit: BoxFit.cover, alignment: Alignment.topCenter)
-                    : CORSResilientImage(
-                        imageUrl: _profileUrl!,
-                        fit: BoxFit.cover,
-                        errorWidget: const Center(
-                            child: Icon(Icons.broken_image, color: cMuted))),
-                // Change overlay
-                Positioned(
-                  bottom: 0, left: 0, right: 0,
-                  child: GestureDetector(
-                    onTap: _showPhotoSheet,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 5),
-                      color: const Color(0x9905080A),
-                      alignment: Alignment.center,
-                      child: Text('✎ Change',
-                          style: GoogleFonts.dmSans(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold)),
-                    ),
+    final previewBytes = _localProfileBytes ?? _originalProfileBytes;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          // Dashed circle border
+          Positioned.fill(
+            child: CustomPaint(painter: _DashedCirclePainter()),
+          ),
+          // Avatar circle (inset 4px from dashed border)
+          Positioned(
+            top: 4, left: 4, right: 4, bottom: 4,
+            child: GestureDetector(
+              onTap: () {
+                if (hasImg) {
+                  setState(() => _showLightbox = true);
+                } else {
+                  _showPhotoSheet();
+                }
+              },
+              child: ClipOval(
+                child: Container(
+                  color: cSurf,
+                  child: hasImg
+                      ? (previewBytes != null
+                          ? Image.memory(previewBytes, fit: BoxFit.cover)
+                          : CORSResilientImage(
+                              imageUrl: _profileUrl!,
+                              fit: BoxFit.cover,
+                              errorWidget: const Center(
+                                  child: Icon(Icons.broken_image, color: cMuted))))
+                      : const Icon(Icons.person, color: cMuted, size: 44),
+                ),
+              ),
+            ),
+          ),
+          // Edit badge at bottom-right
+          Positioned(
+            bottom: 0, right: 0,
+            child: GestureDetector(
+              onTap: _showPhotoSheet,
+              child: Container(
+                width: 28, height: 28,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: cAccent,
+                  border: Border.all(color: cBg, width: 2),
+                ),
+                child: const Icon(Icons.edit, color: Color(0xFF060E14), size: 13),
+              ),
+            ),
+          ),
+          // Upload spinner overlay
+          if (_profileUploading)
+            Positioned(
+              top: 4, left: 4, right: 4, bottom: 4,
+              child: ClipOval(
+                child: Container(
+                  color: cBg.withOpacity(0.6),
+                  alignment: Alignment.center,
+                  child: const SizedBox(
+                    width: 22, height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: cAccent),
                   ),
                 ),
-              ])
-            : _emptyCard(Icons.person_outline, 'Profile Photo', 'Tap to add'),
+              ),
+            ),
+        ],
       ),
     );
   }
 
-  // ── Address card ──────────────────────────────────────────────────────────
-  Widget _buildAddressCard() {
-    final hasProof = _localAddressBytes != null ||
-        (_addressUrl != null && _addressUrl!.isNotEmpty);
-    final isImg = _addressFileName != null
-        ? _isImageExt(_addressFileName!)
-        : (_addressUrl?.contains('firebasestorage') == true ||
-            _addressUrl?.contains('.jp') == true ||
-            _addressUrl?.contains('.png') == true);
+  // ── Address proofs grid ────────────────────────────────────────────────────
+  Widget _buildAddressProofsRow() {
+    final totalProofs = _existingProofUrls.length + _newProofBytes.length;
+    final hasAny = totalProofs > 0;
 
-    return GestureDetector(
-      onTap: _pickAddressProof,
-      child: _cardWrapper(
-        filled: hasProof,
-        child: hasProof
-            ? Stack(fit: StackFit.expand, children: [
-                if (isImg)
-                  (_localAddressBytes != null
-                      ? Image.memory(_localAddressBytes!,
-                          fit: BoxFit.cover, alignment: Alignment.topCenter)
-                      : CORSResilientImage(
-                          imageUrl: _addressUrl!,
-                          fit: BoxFit.cover,
-                          errorWidget: const Center(
-                              child: Icon(Icons.broken_image, color: cMuted))))
-                else
-                  Column(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header row
+        Row(children: [
+          Text('ADDRESS PROOFS',
+              style: GoogleFonts.dmSans(
+                  color: cLabel,
+                  fontSize: 10,
+                  letterSpacing: 1.2,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(width: 8),
+          Expanded(child: Container(height: 1, color: cBorder)),
+        ]),
+        const SizedBox(height: 10),
+        // Wrap grid of 80×80 tiles
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            // Existing URL proofs
+            ..._existingProofUrls.asMap().entries.map((e) {
+              final globalIdx = e.key;
+              final url = e.value;
+              final isPdf = _isPdfUrl(url);
+              final isPrimary = globalIdx == 0;
+              return _proofThumb(
+                isPrimary: isPrimary,
+                label: isPrimary ? null : 'DOC ${globalIdx + 1}',
+                showOcrSpinner: false,
+                child: isPdf
+                    ? _pdfThumbContent()
+                    : CORSResilientImage(
+                        imageUrl: url,
+                        fit: BoxFit.cover,
+                        errorWidget: const Center(
+                            child: Icon(Icons.description_outlined,
+                                color: cAccent, size: 24)),
+                      ),
+                onRemove: () =>
+                    setState(() => _existingProofUrls.removeAt(e.key)),
+                onTap: () => _showProofViewer(url: url),
+              );
+            }),
+            // New (locally picked) proofs
+            ..._newProofBytes.asMap().entries.map((e) {
+              final globalIdx = _existingProofUrls.length + e.key;
+              final bytes = e.value;
+              final name = _newProofFileNames[e.key];
+              final isImg = _isImageExt(name);
+              final isPrimary = globalIdx == 0;
+              final showSpinner = isPrimary && _isOcrRunning;
+              final uploading = e.key < _proofUploading.length
+                  ? _proofUploading[e.key]
+                  : false;
+              return _proofThumb(
+                isPrimary: isPrimary,
+                label: isPrimary ? null : 'DOC ${globalIdx + 1}',
+                showOcrSpinner: showSpinner,
+                isUploading: uploading && !showSpinner,
+                child: isImg
+                    ? Image.memory(bytes, fit: BoxFit.cover)
+                    : _pdfThumbContent(),
+                onRemove: () => setState(() {
+                  _newProofBytes.removeAt(e.key);
+                  _newProofFileNames.removeAt(e.key);
+                  if (e.key < _proofUploadFutures.length) {
+                    _proofUploadFutures.removeAt(e.key);
+                  }
+                  if (e.key < _proofUploading.length) {
+                    _proofUploading.removeAt(e.key);
+                  }
+                }),
+                onTap: () => _showProofViewer(bytes: bytes, fileName: name),
+              );
+            }),
+            // "+ Upload Proof" tile (always at end)
+            GestureDetector(
+              onTap: _showAddProofSheet,
+              child: Container(
+                width: 80,
+                height: 80,
+                clipBehavior: Clip.hardEdge,
+                decoration: BoxDecoration(
+                    color: cSurf,
+                    borderRadius: BorderRadius.circular(14)),
+                child: _DashedBorder(
+                  child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.description_outlined,
-                          color: cAccent, size: 30),
-                      const SizedBox(height: 4),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 6),
-                        child: Text(
-                          _addressFileName ?? 'Document',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      Container(
+                        width: 32, height: 32,
+                        decoration: BoxDecoration(
+                            color: cAccent.withOpacity(0.10),
+                            shape: BoxShape.circle),
+                        child: const Icon(Icons.add, color: cAccent, size: 18),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                          hasAny ? 'Add More' : 'Upload\nProof',
+                          textAlign: TextAlign.center,
                           style: GoogleFonts.dmSans(
                               color: cText,
                               fontSize: 9,
-                              fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: cAccent.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          (_addressFileName?.split('.').last.toUpperCase() ??
-                              'DOC'),
-                          style: GoogleFonts.dmSans(
-                              color: cAccent,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold),
-                        ),
-                      ),
+                              fontWeight: FontWeight.w600)),
                     ],
                   ),
-                Positioned(
-                  bottom: 0, left: 0, right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 5),
-                    color: const Color(0x9905080A),
-                    alignment: Alignment.center,
-                    child: Text('✎ Change',
-                        style: GoogleFonts.dmSans(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold)),
-                  ),
                 ),
-              ])
-            : _emptyCard(Icons.badge_outlined, 'Address Proof', 'Doc / Image'),
-      ),
+              ),
+            ),
+          ],
+        ),
+        // Count below grid
+        if (hasAny) ...[
+          const SizedBox(height: 8),
+          Text('$totalProofs doc${totalProofs > 1 ? 's' : ''}',
+              style: GoogleFonts.dmSans(
+                  color: cAccent, fontSize: 10, fontWeight: FontWeight.w600)),
+        ],
+        // OCR hint text shown while scanning
+        if (_isOcrRunning)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Row(children: [
+              SizedBox(
+                  width: 12, height: 12,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 1.5, color: cAccent)),
+              const SizedBox(width: 8),
+              Text('Scanning document for name & address...',
+                  style: GoogleFonts.dmSans(
+                      color: cAccent, fontSize: 11, fontWeight: FontWeight.w500)),
+            ]),
+          ),
+      ],
     );
   }
 
-  Widget _cardWrapper({required bool filled, required Widget child}) =>
-      Container(
+  /// Small thumbnail card for an address proof item.
+  Widget _proofThumb({
+    required Widget child,
+    required VoidCallback onRemove,
+    VoidCallback? onTap,
+    bool isPrimary = false,
+    String? label,
+    bool showOcrSpinner = false,
+    bool isUploading = false,
+  }) {
+    final showingSpinner = showOcrSpinner || isUploading;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 80,
+        height: 80,
         clipBehavior: Clip.hardEdge,
         decoration: BoxDecoration(
           color: cSurf,
           borderRadius: BorderRadius.circular(14),
-          border: filled
-              ? Border.all(
-                  color: cAccent.withOpacity(0.3), width: 1.5)
-              : Border.all(
-                  color: cAccent.withOpacity(0.3),
-                  width: 1.5,
-                  style: BorderStyle.none), // dashed via CustomPaint if needed
+          border: Border.all(
+            color: isPrimary ? cAccent : cAccent.withOpacity(0.3),
+            width: isPrimary ? 2 : 1.5,
+          ),
         ),
-        child: filled
-            ? child
-            : _DashedBorder(child: child),
-      );
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            child,
+            // Upload / OCR spinner overlay
+            if (showingSpinner)
+              Container(
+                color: cBg.withOpacity(0.6),
+                alignment: Alignment.center,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 22, height: 22,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: cAccent),
+                    ),
+                    if (isUploading && !showOcrSpinner) ...[
+                      const SizedBox(height: 4),
+                      Text('Uploading',
+                          style: GoogleFonts.dmSans(
+                              color: cAccent,
+                              fontSize: 7,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ],
+                ),
+              ),
+            // PRIMARY badge at top
+            if (isPrimary && !showingSpinner)
+              Positioned(
+                top: 0, left: 0, right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [cAccent.withOpacity(0.9), cAccent],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text('PRIMARY',
+                      style: GoogleFonts.dmSans(
+                          color: const Color(0xFF060E14),
+                          fontSize: 7,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.8)),
+                ),
+              ),
+            // DOC N label for non-primary
+            if (label != null && !isPrimary)
+              Positioned(
+                top: 0, left: 0, right: 0,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  color: Colors.black.withOpacity(0.45),
+                  alignment: Alignment.center,
+                  child: Text(label,
+                      style: GoogleFonts.dmSans(
+                          color: cLabel,
+                          fontSize: 7,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6)),
+                ),
+              ),
+            // Remove button
+            Positioned(
+              bottom: 4, right: 4,
+              child: GestureDetector(
+                onTap: onRemove,
+                child: Container(
+                  width: 18, height: 18,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.7),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 11),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-  Widget _emptyCard(IconData icon, String label, String sub) => Column(
+  bool _isPdfUrl(String url) =>
+      url.startsWith('data:application/pdf') ||
+      url.toLowerCase().endsWith('.pdf');
+
+  /// Show a proof image viewer, or download if PDF.
+  void _showProofViewer({String? url, Uint8List? bytes, String? fileName}) {
+    // PDF: download instead of attempting to render
+    final isPdf = (url != null && _isPdfUrl(url)) ||
+        (fileName != null && fileName.toLowerCase().endsWith('.pdf'));
+    if (isPdf) {
+      Uint8List? pdfBytes = bytes;
+      if (pdfBytes == null && url != null) {
+        final comma = url.indexOf(',');
+        if (comma != -1) pdfBytes = base64Decode(url.substring(comma + 1));
+      }
+      if (pdfBytes != null && kIsWeb) {
+        downloadPdfWeb(pdfBytes, fileName ?? 'address_proof.pdf');
+      }
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: EdgeInsets.zero,
+        child: GestureDetector(
+          onTap: () => Navigator.pop(ctx),
+          child: InteractiveViewer(
+            child: url != null
+                ? CORSResilientImage(
+                    imageUrl: url,
+                    placeholder: const Center(child: CircularProgressIndicator()),
+                    errorWidget: const Center(
+                        child: Icon(Icons.broken_image, color: cMuted, size: 48)),
+                  )
+                : Image.memory(bytes!, fit: BoxFit.contain),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _pdfThumbContent() => Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 42, height: 42,
-            decoration: BoxDecoration(
-                color: cAccent.withOpacity(0.10), shape: BoxShape.circle),
-            child: Icon(icon, color: cAccent, size: 22),
-          ),
-          const SizedBox(height: 6),
-          Text(label,
+          const Icon(Icons.picture_as_pdf_rounded,
+              color: Color(0xFFE53935), size: 28),
+          const SizedBox(height: 4),
+          Text('PDF',
               style: GoogleFonts.dmSans(
-                  color: cText, fontSize: 11, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(sub,
-              style: GoogleFonts.dmSans(color: cLabel, fontSize: 9)),
+                  color: cAccent, fontSize: 9, fontWeight: FontWeight.bold)),
         ],
       );
 
@@ -657,15 +1247,15 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
           return Container(
             height: 54,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
               gradient: active
                   ? LinearGradient(
                       colors: const [
-                        Color(0xFF0AAD96),
-                        Color(0xFF0ECFB0),
+                        Color(0xFF00BFA5),
+                        Color(0xFF1DE9B6),
                         Color(0xFFB8F5ED),
-                        Color(0xFF0ECFB0),
-                        Color(0xFF0AAD96),
+                        Color(0xFF1DE9B6),
+                        Color(0xFF00BFA5),
                       ],
                       stops: [
                         0.0,
@@ -778,7 +1368,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
         ),
       );
 
-  // ── Lightbox ──────────────────────────────────────────────────────────────
+  // ── Lightbox (profile photo full view) ────────────────────────────────────
   Widget _buildLightbox() => GestureDetector(
         onTap: () => setState(() => _showLightbox = false),
         child: Container(
@@ -861,10 +1451,37 @@ class _DashedPainter extends CustomPainter {
       ..strokeWidth = 1.5;
     const dashLen = 6.0;
     const gapLen = 5.0;
-    final radius = Radius.circular(14);
+    const radius = Radius.circular(14);
     final rRect = RRect.fromRectAndRadius(
         Rect.fromLTWH(0.75, 0.75, size.width - 1.5, size.height - 1.5), radius);
     final path = Path()..addRRect(rRect);
+    final metrics = path.computeMetrics();
+    for (final metric in metrics) {
+      double dist = 0;
+      while (dist < metric.length) {
+        canvas.drawPath(metric.extractPath(dist, dist + dashLen), paint);
+        dist += dashLen + gapLen;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter old) => false;
+}
+
+class _DashedCirclePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF1DE9B6).withOpacity(0.6)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5;
+    const dashLen = 5.0;
+    const gapLen = 4.0;
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width / 2) - 0.75;
+    final path = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
     final metrics = path.computeMetrics();
     for (final metric in metrics) {
       double dist = 0;

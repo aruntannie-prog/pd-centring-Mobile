@@ -7,16 +7,20 @@ import 'models/bill.dart';
 import 'models/customer.dart';
 import 'models/store.dart';
 import 'theme/app_theme.dart';
+import 'widgets/common.dart' show showUnsavedChangesDialog;
 import 'screens/splash.dart';
 import 'screens/dashboard.dart';
 import 'screens/bills.dart';
 import 'screens/bill_detail.dart';
 import 'screens/new_bill.dart';
 import 'screens/customers.dart';
-import 'screens/add_customer.dart';
 import 'screens/customer_detail.dart';
+import 'screens/add_customer.dart';
 import 'screens/filter.dart';
 import 'screens/reports.dart';
+import 'screens/branch_select.dart';
+import 'screens/consolidate_bill.dart';
+import 'screens/customer_ledger.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
@@ -89,31 +93,176 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   bool _showSplash = true;
+  bool _showBranchSelect = false;
   int _tab = 0;
 
   // Stack-based navigation within each tab
   Bill? _selectedBill;
   Bill? _editingBill;
   bool _showNewBill = false;
+  bool _showConsolidate = false;
   bool _showAddCustomer = false;
   Customer? _selectedCustomer;
   Customer? _editingCustomer;
   Customer? _lastCreatedCustomer;
+  Customer? _ledgerCustomer;
 
-  void _onSplashDone() => setState(() => _showSplash = false);
+  void _onSplashDone() {
+    final branch = context.read<AppStore>().selectedBranch;
+    setState(() {
+      _showSplash = false;
+      _showBranchSelect = branch.isEmpty;
+    });
+  }
+
+  void _onBranchSelected(String _) => setState(() => _showBranchSelect = false);
+  void _switchBranch() => setState(() => _showBranchSelect = true);
 
   void _openBill(Bill b) => setState(() {
         _selectedBill = b;
       });
   void _closeBill() => setState(() => _selectedBill = null);
 
-  void _openNewBill() => setState(() {
-        _showNewBill = true;
-        _lastCreatedCustomer = null;
-      });
+  void _openNewBill() {
+    final colors = context.appColors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+                color: colors.border,
+                borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 20),
+          Text('New Entry',
+              style: GoogleFonts.playfairDisplay(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  color: colors.textMain)),
+          const SizedBox(height: 6),
+          Text('What would you like to create?',
+              style: jakarta(ctx,
+                  size: 13, color: colors.textMuted)),
+          const SizedBox(height: 24),
+          // Option 1: Create DC / Bill
+          GestureDetector(
+            onTap: () {
+              Navigator.pop(ctx);
+              setState(() {
+                _showNewBill = true;
+                _lastCreatedCustomer = null;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF14224A).withValues(alpha: 0.5)
+                    : const Color(0xFFF0F4FF),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF2548B5)
+                        : const Color(0xFFD0DFFF),
+                    width: 1),
+              ),
+              child: Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                      color: colors.brand.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.local_shipping_rounded,
+                      size: 24, color: colors.brand),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text('Create DC / Bill',
+                          style: jakarta(ctx,
+                              size: 15,
+                              weight: FontWeight.w800,
+                              color: colors.brand)),
+                      const SizedBox(height: 2),
+                      Text('New delivery challan or direct invoice',
+                          style: jakarta(ctx,
+                              size: 12, color: colors.textMuted)),
+                    ])),
+                Icon(Icons.arrow_forward_ios_rounded,
+                    size: 14, color: colors.brand),
+              ]),
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Option 2: Consolidate DCs → Bill
+          GestureDetector(
+            onTap: () {
+              Navigator.pop(ctx);
+              setState(() {
+                _showConsolidate = true;
+                _lastCreatedCustomer = null;
+              });
+            },
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF0A2E28).withValues(alpha: 0.6)
+                    : const Color(0xFFE6F7F5),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: isDark
+                        ? const Color(0xFF145E50)
+                        : const Color(0xFFBBEAE5),
+                    width: 1),
+              ),
+              child: Row(children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                      color: colors.teal.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Icon(Icons.receipt_long_rounded,
+                      size: 24, color: colors.teal),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text('Consolidate DCs → Bill',
+                          style: jakarta(ctx,
+                              size: 15,
+                              weight: FontWeight.w800,
+                              color: colors.teal)),
+                      const SizedBox(height: 2),
+                      Text('Combine multiple DCs into one invoice',
+                          style: jakarta(ctx,
+                              size: 12, color: colors.textMuted)),
+                    ])),
+                Icon(Icons.arrow_forward_ios_rounded,
+                    size: 14, color: colors.teal),
+              ]),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
 
   void _closeNewBill() => setState(() {
         _showNewBill = false;
+        _showConsolidate = false;
         _editingBill = null;
         _lastCreatedCustomer = null;
       });
@@ -128,6 +277,12 @@ class _AppShellState extends State<AppShell> {
         _selectedCustomer = c;
       });
   void _closeCustomer() => setState(() => _selectedCustomer = null);
+
+  void _openLedger(Customer c) => setState(() {
+        _ledgerCustomer = c;
+        // _selectedCustomer stays set so back returns to customer detail
+      });
+  void _closeLedger() => setState(() => _ledgerCustomer = null);
 
   void _openAddCustomer() {
     print('AppShell: Opening Add Customer Overlay');
@@ -146,20 +301,22 @@ class _AppShellState extends State<AppShell> {
       });
 
   void _navTo(int tab) => setState(() {
-        _tab = tab;
-        _selectedBill = null;
-        _editingBill = null;
-        _showNewBill = false;
-        _showAddCustomer = false;
-        _selectedCustomer = null;
-        _editingCustomer = null;
-      });
+    _tab = tab;
+    _selectedBill = null;
+    _editingBill = null;
+    _showNewBill = false;
+    _showAddCustomer = false;
+    _selectedCustomer = null;
+    _editingCustomer = null;
+  });
 
   bool _canPop() {
     return _selectedBill == null &&
         !_showAddCustomer &&
+        _ledgerCustomer == null &&
         _selectedCustomer == null &&
         !_showNewBill &&
+        !_showConsolidate &&
         _tab == 0;
   }
 
@@ -168,9 +325,11 @@ class _AppShellState extends State<AppShell> {
       _closeBill();
     } else if (_showAddCustomer) {
       _closeAddCustomer();
+    } else if (_ledgerCustomer != null) {
+      _closeLedger();
     } else if (_selectedCustomer != null) {
       _closeCustomer();
-    } else if (_showNewBill) {
+    } else if (_showNewBill || _showConsolidate) {
       _closeNewBill();
     } else if (_tab != 0) {
       _navTo(0);
@@ -180,6 +339,13 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     if (_showSplash) return SplashScreen(onDone: _onSplashDone);
+
+    if (_showBranchSelect) {
+      return BranchSelectScreen(
+        onSelected: _onBranchSelected,
+        isSwitching: context.read<AppStore>().selectedBranch.isNotEmpty,
+      );
+    }
 
     Widget content;
     if (_selectedBill != null) {
@@ -197,11 +363,18 @@ class _AppShellState extends State<AppShell> {
         }),
         initialCustomer: _editingCustomer,
       );
+    } else if (_ledgerCustomer != null) {
+      content = CustomerLedgerScreen(
+        customer: _ledgerCustomer!,
+        onBack: _closeLedger,
+        onBillTap: _openBill,
+      );
     } else if (_selectedCustomer != null) {
       content = CustomerDetailScreen(
         customer: _selectedCustomer!,
         onBack: _closeCustomer,
         onEdit: _onEditCustomer,
+        onLedger: () => _openLedger(_selectedCustomer!),
       );
     } else if (_showNewBill) {
       content = NewBillScreen(
@@ -213,6 +386,18 @@ class _AppShellState extends State<AppShell> {
         onAddNewCustomer: _openAddCustomer,
         lastCreatedCustomer: _lastCreatedCustomer,
         initialBill: _editingBill,
+        branch: context.read<AppStore>().selectedBranch,
+      );
+    } else if (_showConsolidate) {
+      content = ConsolidateBillScreen(
+        onBack: _closeNewBill,
+        onSaved: () {
+          _closeNewBill();
+          _navTo(1);
+        },
+        onAddNewCustomer: _openAddCustomer,
+        lastCreatedCustomer: _lastCreatedCustomer,
+        branch: context.read<AppStore>().selectedBranch,
       );
     } else {
       content = Scaffold(
@@ -224,8 +409,13 @@ class _AppShellState extends State<AppShell> {
 
     return PopScope(
       canPop: _canPop(),
-      onPopInvoked: (didPop) {
+      onPopInvoked: (didPop) async {
         if (didPop) return;
+        // Show confirmation before discarding unsaved form data
+        if (_showNewBill || _showConsolidate || _showAddCustomer) {
+          final leave = await showUnsavedChangesDialog(context);
+          if (!leave || !mounted) return;
+        }
         _handleSystemBack();
       },
       child: AnnotatedRegion<SystemUiOverlayStyle>(
@@ -257,6 +447,7 @@ class _AppShellState extends State<AppShell> {
           onBillTap: _openBill,
           onAddCustomer: _openAddCustomer,
           onNewBill: _openNewBill,
+          onSwitchBranch: _switchBranch,
         );
       case 1:
         return BillsScreen(
@@ -277,7 +468,8 @@ class _AppShellState extends State<AppShell> {
             onNav: _navTo,
             onBillTap: _openBill,
             onAddCustomer: _openAddCustomer,
-            onNewBill: _openNewBill);
+            onNewBill: _openNewBill,
+            onSwitchBranch: _switchBranch);
     }
   }
 }
