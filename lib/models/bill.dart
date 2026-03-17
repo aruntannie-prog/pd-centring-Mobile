@@ -213,6 +213,8 @@ class SideSheetEntry {
   final int qty;
   final double rate;      // ₹ per sqft for this sheet type
   final int days;         // rental due date (not a multiplier)
+  final bool isReturned;
+  final DateTime? returnDate;
 
   static const Map<String, double> conversionFactors = {
     '24': 2.00,
@@ -233,7 +235,29 @@ class SideSheetEntry {
     required this.qty,
     this.rate = 0.0,
     this.days = 0,
+    this.isReturned = false,
+    this.returnDate,
   });
+
+  SideSheetEntry copyWith({
+    String? sheetType,
+    int? size,
+    int? qty,
+    double? rate,
+    int? days,
+    bool? isReturned,
+    DateTime? returnDate,
+  }) {
+    return SideSheetEntry(
+      sheetType: sheetType ?? this.sheetType,
+      size: size ?? this.size,
+      qty: qty ?? this.qty,
+      rate: rate ?? this.rate,
+      days: days ?? this.days,
+      isReturned: isReturned ?? this.isReturned,
+      returnDate: returnDate ?? this.returnDate,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'sheetType': sheetType,
@@ -241,6 +265,8 @@ class SideSheetEntry {
         'qty': qty,
         'rate': rate,
         'days': days,
+        'isReturned': isReturned,
+        'returnDate': returnDate?.toIso8601String(),
       };
 
   factory SideSheetEntry.fromJson(Map<String, dynamic> j, {double fallbackRate = 0.0}) =>
@@ -250,6 +276,161 @@ class SideSheetEntry {
         qty: j['qty'] as int,
         rate: (j['rate'] as num?)?.toDouble() ?? fallbackRate,
         days: j['days'] as int? ?? 0,
+        isReturned: j['isReturned'] as bool? ?? false,
+        returnDate: j['returnDate'] != null ? DateTime.tryParse(j['returnDate']) : null,
+      );
+}
+
+// ── NEW: Palagai, Muttu, and Roof Material ──────────────────────────────────
+
+class PalagaiEntry {
+  final String length;
+  final String size;
+  final int qty;
+  final double rate;
+  final int days;
+  final bool isReturned;
+  final DateTime? returnDate;
+
+  double get amount => qty * rate;
+
+  const PalagaiEntry({
+    required this.length,
+    required this.size,
+    required this.qty,
+    this.rate = 0.0,
+    this.days = 0,
+    this.isReturned = false,
+    this.returnDate,
+  });
+
+  PalagaiEntry copyWith({bool? isReturned, DateTime? returnDate}) => PalagaiEntry(
+        length: length,
+        size: size,
+        qty: qty,
+        rate: rate,
+        days: days,
+        isReturned: isReturned ?? this.isReturned,
+        returnDate: returnDate ?? this.returnDate,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'length': length,
+        'size': size,
+        'qty': qty,
+        'rate': rate,
+        'days': days,
+        'isReturned': isReturned,
+        'returnDate': returnDate?.toIso8601String(),
+      };
+
+  factory PalagaiEntry.fromJson(Map<String, dynamic> j) => PalagaiEntry(
+        length: j['length'] as String,
+        size: j['size'].toString(),
+        qty: j['qty'] as int,
+        rate: (j['rate'] as num?)?.toDouble() ?? 0.0,
+        days: j['days'] as int? ?? 0,
+        isReturned: j['isReturned'] as bool? ?? false,
+        returnDate: j['returnDate'] != null ? DateTime.tryParse(j['returnDate']) : null,
+      );
+}
+
+class MuttuEntry {
+  final String length;
+  final String size;
+  final int qty;
+  final double rate;
+  final int days;
+  final bool isReturned;
+  final DateTime? returnDate;
+
+  double get amount => qty * rate;
+
+  const MuttuEntry({
+    required this.length,
+    required this.size,
+    required this.qty,
+    this.rate = 0.0,
+    this.days = 0,
+    this.isReturned = false,
+    this.returnDate,
+  });
+
+  MuttuEntry copyWith({bool? isReturned, DateTime? returnDate}) => MuttuEntry(
+        length: length,
+        size: size,
+        qty: qty,
+        rate: rate,
+        days: days,
+        isReturned: isReturned ?? this.isReturned,
+        returnDate: returnDate ?? this.returnDate,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'length': length,
+        'size': size,
+        'qty': qty,
+        'rate': rate,
+        'days': days,
+        'isReturned': isReturned,
+        'returnDate': returnDate?.toIso8601String(),
+      };
+
+  factory MuttuEntry.fromJson(Map<String, dynamic> j) => MuttuEntry(
+        length: j['length'] as String,
+        size: j['size'].toString(),
+        qty: j['qty'] as int,
+        rate: (j['rate'] as num?)?.toDouble() ?? 0.0,
+        days: j['days'] as int? ?? 0,
+        isReturned: j['isReturned'] as bool? ?? false,
+        returnDate: j['returnDate'] != null ? DateTime.tryParse(j['returnDate']) : null,
+      );
+}
+
+class RoofMaterialEntry {
+  final String itemName;
+  final int qty;
+  final double rate;
+  final int days;
+  final bool isReturned;
+  final DateTime? returnDate;
+
+  double get amount => qty * rate;
+
+  const RoofMaterialEntry({
+    required this.itemName,
+    required this.qty,
+    this.rate = 0.0,
+    this.days = 0,
+    this.isReturned = false,
+    this.returnDate,
+  });
+
+  RoofMaterialEntry copyWith({bool? isReturned, DateTime? returnDate}) => RoofMaterialEntry(
+        itemName: itemName,
+        qty: qty,
+        rate: rate,
+        days: days,
+        isReturned: isReturned ?? this.isReturned,
+        returnDate: returnDate ?? this.returnDate,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'itemName': itemName,
+        'qty': qty,
+        'rate': rate,
+        'days': days,
+        'isReturned': isReturned,
+        'returnDate': returnDate?.toIso8601String(),
+      };
+
+  factory RoofMaterialEntry.fromJson(Map<String, dynamic> j) => RoofMaterialEntry(
+        itemName: j['itemName'] as String,
+        qty: j['qty'] as int,
+        rate: (j['rate'] as num?)?.toDouble() ?? 0.0,
+        days: j['days'] as int? ?? 0,
+        isReturned: j['isReturned'] as bool? ?? false,
+        returnDate: j['returnDate'] != null ? DateTime.tryParse(j['returnDate']) : null,
       );
 }
 
@@ -278,13 +459,21 @@ class Bill {
   List<String> linkedDcIds;
   List<SideSheetEntry> sideSheets;
   double sideSheetRate;
+  
+  List<PalagaiEntry> palagai;
+  List<MuttuEntry> muttu;
+  List<RoofMaterialEntry> roofItems;
 
   double get rentTotal {
     final mTotal = materials.fold(0.0, (s, m) => s + m.amount);
     final cTotal = columnBoxes.fold(0.0, (s, b) => s + b.totalAmount);
     final rTotal = roundBoxes.fold(0.0, (s, b) => s + b.totalAmount);
     final ssTotal = sideSheets.fold(0.0, (s, e) => s + e.amount);
-    return mTotal + cTotal + rTotal + ssTotal;
+    final palagaiTotal = palagai.fold(0.0, (s, e) => s + e.amount);
+    final muttuTotal = muttu.fold(0.0, (s, e) => s + e.amount);
+    final roofTotal = roofItems.fold(0.0, (s, e) => s + e.amount);
+    
+    return mTotal + cTotal + rTotal + ssTotal + palagaiTotal + muttuTotal + roofTotal;
   }
   
   double get grandTotal => rentTotal + vehicleChargeUp + vehicleChargeDown + labourChargeUp + labourChargeDown;
@@ -316,23 +505,36 @@ class Bill {
     this.linkedDcIds = const [],
     this.sideSheets = const [],
     this.sideSheetRate = 0.0,
+    this.palagai = const [],
+    this.muttu = const [],
+    this.roofItems = const [],
   }) : id = id ?? _uuid.v4();
 
   bool get _hasAnyItems =>
-      materials.isNotEmpty || columnBoxes.isNotEmpty || roundBoxes.isNotEmpty || sideSheets.isNotEmpty;
+      materials.isNotEmpty || columnBoxes.isNotEmpty || roundBoxes.isNotEmpty || 
+      sideSheets.isNotEmpty || palagai.isNotEmpty || muttu.isNotEmpty || roofItems.isNotEmpty;
 
   bool get _allItemsReturned {
     if (!_hasAnyItems) return false;
     final matOk = materials.isEmpty || materials.every((m) => m.isReturned);
     final cbOk = columnBoxes.isEmpty || columnBoxes.every((b) => b.isReturned);
     final rbOk = roundBoxes.isEmpty || roundBoxes.every((b) => b.isReturned);
-    return matOk && cbOk && rbOk;
+    final ssOk = sideSheets.isEmpty || sideSheets.every((e) => e.isReturned);
+    final palagaiOk = palagai.isEmpty || palagai.every((e) => e.isReturned);
+    final muttuOk = muttu.isEmpty || muttu.every((e) => e.isReturned);
+    final roofOk = roofItems.isEmpty || roofItems.every((e) => e.isReturned);
+    
+    return matOk && cbOk && rbOk && ssOk && palagaiOk && muttuOk && roofOk;
   }
 
   bool get _someItemsReturned =>
       materials.any((m) => m.isReturned) ||
       columnBoxes.any((b) => b.isReturned) ||
-      roundBoxes.any((b) => b.isReturned);
+      roundBoxes.any((b) => b.isReturned) ||
+      sideSheets.any((e) => e.isReturned) ||
+      palagai.any((e) => e.isReturned) ||
+      muttu.any((e) => e.isReturned) ||
+      roofItems.any((e) => e.isReturned);
 
   // Returns the earliest due date among all non-returned items
   DateTime? get dueDate {
@@ -351,6 +553,18 @@ class Bill {
         final d = rb.maxRowDays > 0 ? rb.maxRowDays : rb.days;
         if (d > 0) dates.add(billDate.add(Duration(days: d)));
       }
+    }
+    for (final p in palagai) {
+      if (!p.isReturned && p.days > 0) dates.add(billDate.add(Duration(days: p.days)));
+    }
+    for (final m in muttu) {
+      if (!m.isReturned && m.days > 0) dates.add(billDate.add(Duration(days: m.days)));
+    }
+    for (final r in roofItems) {
+      if (!r.isReturned && r.days > 0) dates.add(billDate.add(Duration(days: r.days)));
+    }
+    for (final s in sideSheets) {
+      if (!s.isReturned && s.days > 0) dates.add(billDate.add(Duration(days: s.days)));
     }
     if (dates.isEmpty) return null;
     return dates.reduce((a, b) => a.isBefore(b) ? a : b);
@@ -394,7 +608,11 @@ class Bill {
   int get returnedCount =>
       materials.where((m) => m.isReturned).length +
       columnBoxes.where((b) => b.isReturned).length +
-      roundBoxes.where((b) => b.isReturned).length;
+      roundBoxes.where((b) => b.isReturned).length +
+      sideSheets.where((e) => e.isReturned).length +
+      palagai.where((e) => e.isReturned).length +
+      muttu.where((e) => e.isReturned).length +
+      roofItems.where((e) => e.isReturned).length;
 
   String get billDateFormatted {
     const months = [
@@ -437,6 +655,9 @@ class Bill {
         'linkedDcIds': linkedDcIds,
         'sideSheets': sideSheets.map((e) => e.toJson()).toList(),
         'sideSheetRate': sideSheetRate,
+        'palagai': palagai.map((e) => e.toJson()).toList(),
+        'muttu': muttu.map((e) => e.toJson()).toList(),
+        'roofItems': roofItems.map((e) => e.toJson()).toList(),
       };
 
   factory Bill.fromJson(Map<String, dynamic> j) => Bill(
@@ -479,6 +700,18 @@ class Bill {
                     ))
                 .toList() ??
             [],
+        palagai: (j['palagai'] as List?)
+                ?.map((e) => PalagaiEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList() ??
+            [],
+        muttu: (j['muttu'] as List?)
+                ?.map((e) => MuttuEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList() ??
+            [],
+        roofItems: (j['roofItems'] as List?)
+                ?.map((e) => RoofMaterialEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList() ??
+            [],
       );
 }
 
@@ -494,12 +727,9 @@ List<Bill> sampleBills() {
       customerId: '',
       site: 'Muggapair',
       billDate: now,
-      materials: [
-        RentalMaterial(
-            name: 'Box', days: 30, dueDate: now.add(const Duration(days: 30))),
-        RentalMaterial(
-            name: 'Shoe', days: 15, dueDate: now.add(const Duration(days: 15))),
-      ],
+      materials: [],
+      columnBoxes: [],
+      roundBoxes: [],
     ),
     Bill(
       id: 'B6050',

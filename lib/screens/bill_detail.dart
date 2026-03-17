@@ -502,9 +502,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                             children: [
                               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                 Text('📦  ${b.sizeKey}', style: jakarta(context, size: 16, weight: FontWeight.w800, color: colors.textMain)),
-                                if (b.days > 0) ...[
+                                if (!ret && b.days > 0) ...[
                                   const SizedBox(height: 4),
-                                  Text('${b.days} days for rent', style: jakarta(context, size: 12, color: colors.textMuted)),
+                                  Text('Due: ${_formatDate(bill.billDate.add(Duration(days: b.days)))}',
+                                      style: jakarta(context, size: 12, weight: FontWeight.w700, color: const Color(0xFFFF5555))),
                                 ],
                                 if (ret && b.returnDate != null) ...[
                                   const SizedBox(height: 4),
@@ -599,9 +600,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                             children: [
                               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                                 Text('🔵  ${b.sizeKey}', style: jakarta(context, size: 16, weight: FontWeight.w800, color: colors.textMain)),
-                                if (b.days > 0) ...[
+                                if (!ret && b.days > 0) ...[
                                   const SizedBox(height: 4),
-                                  Text('${b.days} days for rent', style: jakarta(context, size: 12, color: colors.textMuted)),
+                                  Text('Due: ${_formatDate(bill.billDate.add(Duration(days: b.days)))}',
+                                      style: jakarta(context, size: 12, weight: FontWeight.w700, color: const Color(0xFFFF5555))),
                                 ],
                                 if (ret && b.returnDate != null) ...[
                                   const SizedBox(height: 4),
@@ -675,84 +677,321 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
               if (liveBill.sideSheets.isNotEmpty) ...[
                 const SizedBox(height: 8),
                 SectionHeader('SIDE SHEETS'),
-                Container(
-                  decoration: BoxDecoration(
-                    color: colors.surface,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: colors.amberBd, width: 0.5),
-                    boxShadow: [BoxShadow(color: colors.glow, blurRadius: 12, offset: const Offset(0, 4))],
-                  ),
-                  child: Column(children: [
-                    // Header row
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        color: colors.amberBg,
-                        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                      ),
-                      child: Row(children: [
-                        Expanded(flex: 3, child: Text('SHEET TYPE · SIZE',
-                            style: jakarta(context, size: 9, weight: FontWeight.w800, color: colors.amber)
-                                .copyWith(letterSpacing: 1.2))),
-                        SizedBox(width: 48, child: Text('QTY', textAlign: TextAlign.center,
-                            style: jakarta(context, size: 9, weight: FontWeight.w800, color: colors.amber)
-                                .copyWith(letterSpacing: 1.2))),
-                        SizedBox(width: 60, child: Text('SQFT', textAlign: TextAlign.right,
-                            style: jakarta(context, size: 9, weight: FontWeight.w800, color: colors.amber)
-                                .copyWith(letterSpacing: 1.2))),
-                        SizedBox(width: 64, child: Text('AMOUNT', textAlign: TextAlign.right,
-                            style: jakarta(context, size: 9, weight: FontWeight.w800, color: colors.amber)
-                                .copyWith(letterSpacing: 1.2))),
-                      ]),
+                ...liveBill.sideSheets.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final e = entry.value;
+                  final ret = e.isReturned;
+                  final amount = e.amount;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: ret ? colors.tealBg : colors.redBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: ret ? colors.tealBd : colors.redBd, width: 0.5),
+                      boxShadow: [BoxShadow(color: colors.glow, blurRadius: 12, offset: const Offset(0, 4))],
                     ),
-                    // Data rows
-                    ...liveBill.sideSheets.asMap().entries.map((entry) {
-                      final i = entry.key;
-                      final e = entry.value;
-                      final isLast = i == liveBill.sideSheets.length - 1;
-                      final amount = e.sqft * liveBill.sideSheetRate;
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                        decoration: BoxDecoration(
-                          border: isLast ? null : Border(bottom: BorderSide(color: colors.border, width: 0.5)),
-                        ),
-                        child: Row(children: [
-                          Expanded(flex: 3, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Text('${e.sheetType} Sheet',
-                                style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.textMain)),
-                            Text('Size ${e.size} · ×${SideSheetEntry.conversionFactors[e.sheetType]}',
-                                style: jakarta(context, size: 10, color: colors.textMuted)),
-                          ])),
-                          SizedBox(width: 48, child: Text('${e.qty}',
-                              textAlign: TextAlign.center,
-                              style: jakarta(context, size: 13, weight: FontWeight.w700, color: colors.textSub))),
-                          SizedBox(width: 60, child: Text('${e.sqft.toStringAsFixed(1)}',
-                              textAlign: TextAlign.right,
-                              style: jakarta(context, size: 13, weight: FontWeight.w700, color: colors.amber))),
-                          SizedBox(width: 64, child: Text('₹${amount.toStringAsFixed(0)}',
-                              textAlign: TextAlign.right,
-                              style: jakarta(context, size: 13, weight: FontWeight.w700, color: colors.textMain))),
-                        ]),
-                      );
-                    }),
-                    // Total row
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: colors.amberBg.withOpacity(0.5),
-                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-                        border: Border(top: BorderSide(color: colors.amberBd, width: 0.5)),
-                      ),
-                      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                        Text(
-                          'Total · ${liveBill.sideSheets.fold(0.0, (s, e) => s + e.sqft).toStringAsFixed(1)} sqft @ ₹${liveBill.sideSheetRate.toStringAsFixed(0)}/sqft',
-                          style: jakarta(context, size: 11, weight: FontWeight.w700, color: colors.amber)),
-                        Text('₹${(liveBill.sideSheets.fold(0.0, (s, e) => s + e.sqft) * liveBill.sideSheetRate).toStringAsFixed(2)}',
-                            style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.amber)),
-                      ]),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('📄  ${e.sheetType} Sheet — Size: ${e.size}', style: jakarta(context, size: 16, weight: FontWeight.w800, color: colors.textMain)),
+                                  if (!ret && e.days > 0) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Due: ${_formatDate(bill.billDate.add(Duration(days: e.days)))}',
+                                        style: jakarta(context, size: 12, weight: FontWeight.w700, color: const Color(0xFFFF5555))),
+                                  ],
+                                  if (ret && e.returnDate != null) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Returned: ${_formatDate(e.returnDate!)}', style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.teal)),
+                                  ],
+                                ]),
+                              ),
+                              ret
+                                  ? Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                      decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: colors.tealBd, width: 0.5)),
+                                      child: Text('RETURNED', style: jakarta(context, size: 10, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: 0.5)),
+                                    )
+                                  : const SizedBox.shrink(),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${e.qty} pcs @ ₹${e.rate.toStringAsFixed(2)}/sqft (${e.sqft.toStringAsFixed(1)} sqft)', style: jakarta(context, size: 13, color: colors.textSub)),
+                              Text('₹${amount.toStringAsFixed(2)}', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.brand)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (ret)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.tealBd, width: 0.5)),
+                              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                Icon(Icons.check_circle_rounded, size: 20, color: colors.teal),
+                                const SizedBox(width: 8),
+                                Text('RETURNED', style: jakarta(context, size: 13, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: .5)),
+                              ]),
+                            )
+                          else
+                            GestureDetector(
+                              onTap: () => _markSideSheetReturned(context, liveBill.id, i),
+                              child: _returnButton(isDark),
+                            ),
+                        ]
+                      )
+                    )
+                  );
+                }),
+              ],
+
+              // Palagai
+              if (liveBill.palagai.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SectionHeader('PALAGAI'),
+                ...liveBill.palagai.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final p = entry.value;
+                  final ret = p.isReturned;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: ret ? colors.tealBg : colors.redBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: ret ? colors.tealBd : colors.redBd, width: 0.5),
+                      boxShadow: [BoxShadow(color: colors.glow, blurRadius: 12, offset: const Offset(0, 4))],
                     ),
-                  ]),
-                ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('🪵  ${p.length == "Runner" ? "Runner" : "Length: ${p.length}"} — Size: ${p.size}', style: jakarta(context, size: 16, weight: FontWeight.w800, color: colors.textMain)),
+                                  if (!ret && p.days > 0) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Due: ${_formatDate(bill.billDate.add(Duration(days: p.days)))}',
+                                        style: jakarta(context, size: 12, weight: FontWeight.w700, color: const Color(0xFFFF5555))),
+                                  ],
+                                  if (ret && p.returnDate != null) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Returned: ${_formatDate(p.returnDate!)}', style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.teal)),
+                                  ],
+                                ]),
+                              ),
+                              ret
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: colors.tealBd, width: 0.5)),
+                                    child: Text('RETURNED', style: jakarta(context, size: 10, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: 0.5)),
+                                  )
+                                : const SizedBox.shrink(),
+                            ]
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${p.qty} pcs @ ₹${p.rate.toStringAsFixed(2)}', style: jakarta(context, size: 13, color: colors.textSub)),
+                              Text('₹${p.amount.toStringAsFixed(2)}', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.brand)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (ret)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.tealBd, width: 0.5)),
+                              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                Icon(Icons.check_circle_rounded, size: 20, color: colors.teal),
+                                const SizedBox(width: 8),
+                                Text('RETURNED', style: jakarta(context, size: 13, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: .5)),
+                              ]),
+                            )
+                          else
+                            GestureDetector(
+                              onTap: () => _markPalagaiReturned(context, liveBill.id, i),
+                              child: _returnButton(isDark),
+                            ),
+                        ]
+                      )
+                    )
+                  );
+                }),
+              ],
+
+              // Muttu
+              if (liveBill.muttu.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SectionHeader('MUTTU'),
+                ...liveBill.muttu.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final m = entry.value;
+                  final ret = m.isReturned;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: ret ? colors.tealBg : colors.redBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: ret ? colors.tealBd : colors.redBd, width: 0.5),
+                      boxShadow: [BoxShadow(color: colors.glow, blurRadius: 12, offset: const Offset(0, 4))],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('⚙️  Length: ${m.length} — Size: ${m.size}', style: jakarta(context, size: 16, weight: FontWeight.w800, color: colors.textMain)),
+                                  if (!ret && m.days > 0) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Due: ${_formatDate(bill.billDate.add(Duration(days: m.days)))}',
+                                        style: jakarta(context, size: 12, weight: FontWeight.w700, color: const Color(0xFFFF5555))),
+                                  ],
+                                  if (ret && m.returnDate != null) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Returned: ${_formatDate(m.returnDate!)}', style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.teal)),
+                                  ],
+                                ]),
+                              ),
+                              ret
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: colors.tealBd, width: 0.5)),
+                                    child: Text('RETURNED', style: jakarta(context, size: 10, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: 0.5)),
+                                  )
+                                : const SizedBox.shrink(),
+                            ]
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${m.qty} pcs @ ₹${m.rate.toStringAsFixed(2)}', style: jakarta(context, size: 13, color: colors.textSub)),
+                              Text('₹${m.amount.toStringAsFixed(2)}', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.brand)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (ret)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.tealBd, width: 0.5)),
+                              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                Icon(Icons.check_circle_rounded, size: 20, color: colors.teal),
+                                const SizedBox(width: 8),
+                                Text('RETURNED', style: jakarta(context, size: 13, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: .5)),
+                              ]),
+                            )
+                          else
+                            GestureDetector(
+                              onTap: () => _markMuttuReturned(context, liveBill.id, i),
+                              child: _returnButton(isDark),
+                            ),
+                        ]
+                      )
+                    )
+                  );
+                }),
+              ],
+
+              // Roof Material
+              if (liveBill.roofItems.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SectionHeader('ROOF MATERIALS'),
+                ...liveBill.roofItems.asMap().entries.map((entry) {
+                  final i = entry.key;
+                  final r = entry.value;
+                  final ret = r.isReturned;
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: ret ? colors.tealBg : colors.redBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: ret ? colors.tealBd : colors.redBd, width: 0.5),
+                      boxShadow: [BoxShadow(color: colors.glow, blurRadius: 12, offset: const Offset(0, 4))],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                  Text('🏠  ${r.itemName}', style: jakarta(context, size: 16, weight: FontWeight.w800, color: colors.textMain)),
+                                  if (!ret && r.days > 0) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Due: ${_formatDate(bill.billDate.add(Duration(days: r.days)))}',
+                                        style: jakarta(context, size: 12, weight: FontWeight.w700, color: const Color(0xFFFF5555))),
+                                  ],
+                                  if (ret && r.returnDate != null) ...[
+                                    const SizedBox(height: 4),
+                                    Text('Returned: ${_formatDate(r.returnDate!)}', style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.teal)),
+                                  ],
+                                ]),
+                              ),
+                              ret
+                                ? Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: colors.tealBd, width: 0.5)),
+                                    child: Text('RETURNED', style: jakarta(context, size: 10, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: 0.5)),
+                                  )
+                                : const SizedBox.shrink(),
+                            ]
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text('${r.qty} pcs @ ₹${r.rate.toStringAsFixed(2)}', style: jakarta(context, size: 13, color: colors.textSub)),
+                              Text('₹${r.amount.toStringAsFixed(2)}', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.brand)),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          if (ret)
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              decoration: BoxDecoration(color: colors.tealBg, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.tealBd, width: 0.5)),
+                              child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                Icon(Icons.check_circle_rounded, size: 20, color: colors.teal),
+                                const SizedBox(width: 8),
+                                Text('RETURNED', style: jakarta(context, size: 13, weight: FontWeight.w800, color: colors.teal).copyWith(letterSpacing: .5)),
+                              ]),
+                            )
+                          else
+                            GestureDetector(
+                              onTap: () => _markRoofMaterialReturned(context, liveBill.id, i),
+                              child: _returnButton(isDark),
+                            ),
+                        ]
+                      )
+                    )
+                  );
+                }),
               ],
 
               const SizedBox(height: 24),
@@ -793,19 +1032,14 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                                               size: 16,
                                               weight: FontWeight.w800,
                                               color: colors.textMain)),
-                                      const SizedBox(height: 4),
-                                      Text('${m.days} days for rent',
-                                          style: jakarta(context,
-                                              size: 12,
-                                              color: colors.textMuted)),
-                                      const SizedBox(height: 6),
-                                      Text('Due: ${m.dueDateFormatted}',
-                                          style: jakarta(context,
-                                              size: 12,
-                                              weight: FontWeight.w700,
-                                              color: ret
-                                                  ? colors.teal
-                                                  : const Color(0xFFFF5555))),
+                                      if (!ret) ...[
+                                        const SizedBox(height: 6),
+                                        Text('Due: ${m.dueDateFormatted}',
+                                            style: jakarta(context,
+                                                size: 12,
+                                                weight: FontWeight.w700,
+                                                color: const Color(0xFFFF5555))),
+                                      ],
                                       if (ret && m.returnDate != null) ...[
                                         const SizedBox(height: 4),
                                         Text('Returned: ${_formatDate(m.returnDate!)}',
@@ -863,51 +1097,69 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
                 ),
                 child: Column(
                   children: [
-                    _DetailFinRow('Total Rent', '₹${liveBill.rentTotal.toStringAsFixed(0)}', colors, context),
+                    // Total Rent
+                    _FinRow(
+                      label: 'Total Rent',
+                      value: '₹${liveBill.rentTotal.toStringAsFixed(0)}',
+                      colors: colors,
+                      context: context,
+                    ),
                     if (liveBill.vehicleChargeUp > 0) ...[
-                      const SizedBox(height: 10),
-                      _DetailFinRow('Transport (UP)', '₹${liveBill.vehicleChargeUp.toStringAsFixed(0)}', colors, context),
+                      const SizedBox(height: 12),
+                      _FinRow(label: 'Transport (UP)', value: '₹${liveBill.vehicleChargeUp.toStringAsFixed(0)}', colors: colors, context: context),
                     ],
                     if (liveBill.vehicleChargeDown > 0) ...[
-                      const SizedBox(height: 10),
-                      _DetailFinRow('Transport (DOWN)', '₹${liveBill.vehicleChargeDown.toStringAsFixed(0)}', colors, context),
+                      const SizedBox(height: 12),
+                      _FinRow(label: 'Transport (DOWN)', value: '₹${liveBill.vehicleChargeDown.toStringAsFixed(0)}', colors: colors, context: context),
                     ],
                     if (liveBill.labourChargeUp > 0) ...[
-                      const SizedBox(height: 10),
-                      _DetailFinRow('Labour (UP)', '₹${liveBill.labourChargeUp.toStringAsFixed(0)}', colors, context),
+                      const SizedBox(height: 12),
+                      _FinRow(label: 'Labour (UP)', value: '₹${liveBill.labourChargeUp.toStringAsFixed(0)}', colors: colors, context: context),
                     ],
                     if (liveBill.labourChargeDown > 0) ...[
-                      const SizedBox(height: 10),
-                      _DetailFinRow('Labour (DOWN)', '₹${liveBill.labourChargeDown.toStringAsFixed(0)}', colors, context),
+                      const SizedBox(height: 12),
+                      _FinRow(label: 'Labour (DOWN)', value: '₹${liveBill.labourChargeDown.toStringAsFixed(0)}', colors: colors, context: context),
                     ],
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       child: Divider(height: 1, thickness: 0.5, color: colors.border),
                     ),
+                    // Total Amount + GST + Balance
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Total Amount', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain)),
+                        Text('Total Amount',
+                            style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain)),
                         Text('₹${liveBill.grandTotal.toStringAsFixed(0)}',
                             style: GoogleFonts.playfairDisplay(fontSize: 17, fontWeight: FontWeight.w900,
                                 color: liveBill.type == BillType.bill ? colors.teal : colors.brand)),
                       ],
                     ),
                     if (liveBill.gstEnabled) ...[
-                      const SizedBox(height: 8),
-                      _DetailFinRow('SGST (9%)', '₹${liveBill.sgst.toStringAsFixed(0)}', colors, context, muted: true),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(child: Text('GST Billing (18%)',
+                              style: jakarta(context, size: 13, weight: FontWeight.w600, color: colors.textSub))),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      _FinRow(label: 'SGST (9%)', value: '₹${liveBill.sgst.toStringAsFixed(0)}', colors: colors, context: context, isMuted: true),
                       const SizedBox(height: 4),
-                      _DetailFinRow('CGST (9%)', '₹${liveBill.cgst.toStringAsFixed(0)}', colors, context, muted: true),
+                      _FinRow(label: 'CGST (9%)', value: '₹${liveBill.cgst.toStringAsFixed(0)}', colors: colors, context: context, isMuted: true),
                       const SizedBox(height: 8),
-                      _DetailFinRow('Total incl. GST', '₹${liveBill.totalWithGst.toStringAsFixed(0)}', colors, context),
+                      _FinRow(label: 'Total incl. GST', value: '₹${liveBill.totalWithGst.toStringAsFixed(0)}', colors: colors, context: context),
                     ],
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       child: Divider(height: 1, thickness: 0.5, color: colors.border),
                     ),
                     if (liveBill.advancePaid > 0) ...[
-                      _DetailFinRow('Received Amount', '₹${liveBill.advancePaid.toStringAsFixed(0)}', colors, context),
-                      const SizedBox(height: 14),
+                      _FinRow(label: 'Received Amount', value: '₹${liveBill.advancePaid.toStringAsFixed(0)}', colors: colors, context: context),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        child: Divider(height: 1, thickness: 0.5, color: colors.border),
+                      ),
                     ],
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -996,6 +1248,58 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     } else {
       await ctx.read<AppStore>().markColumnBoxReturned(billId, sizeKey, picked);
     }
+  }
+
+  Future<void> _markPalagaiReturned(BuildContext ctx, String billId, int index) async {
+    final picked = await showDatePicker(
+      context: ctx,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Select Return Date',
+    );
+    if (picked == null || !ctx.mounted) return;
+    HapticFeedback.mediumImpact();
+    await ctx.read<AppStore>().markPalagaiReturned(billId, index, picked);
+  }
+
+  Future<void> _markMuttuReturned(BuildContext ctx, String billId, int index) async {
+    final picked = await showDatePicker(
+      context: ctx,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Select Return Date',
+    );
+    if (picked == null || !ctx.mounted) return;
+    HapticFeedback.mediumImpact();
+    await ctx.read<AppStore>().markMuttuReturned(billId, index, picked);
+  }
+
+  Future<void> _markRoofMaterialReturned(BuildContext ctx, String billId, int index) async {
+    final picked = await showDatePicker(
+      context: ctx,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Select Return Date',
+    );
+    if (picked == null || !ctx.mounted) return;
+    HapticFeedback.mediumImpact();
+    await ctx.read<AppStore>().markRoofMaterialReturned(billId, index, picked);
+  }
+
+  Future<void> _markSideSheetReturned(BuildContext ctx, String billId, int index) async {
+    final picked = await showDatePicker(
+      context: ctx,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now(),
+      helpText: 'Select Return Date',
+    );
+    if (picked == null || !ctx.mounted) return;
+    HapticFeedback.mediumImpact();
+    await ctx.read<AppStore>().markSideSheetReturned(billId, index, picked);
   }
 
   Future<void> _processWithLoading(
@@ -1126,18 +1430,21 @@ class _InfoBox extends StatelessWidget {
       );
 }
 
-class _DetailFinRow extends StatelessWidget {
-  final String label, value;
+class _FinRow extends StatelessWidget {
+  final String label;
+  final String value;
   final AppColors colors;
-  final BuildContext ctx;
-  final bool muted;
-  const _DetailFinRow(this.label, this.value, this.colors, this.ctx, {this.muted = false});
+  final BuildContext context;
+  final bool isMuted;
+  const _FinRow({required this.label, required this.value, required this.colors, required this.context, this.isMuted = false});
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      Text(label, style: jakarta(ctx, size: 13, weight: FontWeight.w600, color: muted ? colors.textMuted : colors.textSub)),
-      Text(value, style: jakarta(ctx, size: 13, weight: FontWeight.w700, color: muted ? colors.textMuted : colors.textMain)),
-    ],
-  );
+  Widget build(BuildContext ctx) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: jakarta(context, size: 13, weight: FontWeight.w600, color: isMuted ? colors.textMuted : colors.textSub)),
+        Text(value, style: jakarta(context, size: 13, weight: FontWeight.w700, color: isMuted ? colors.textMuted : colors.textMain)),
+      ],
+    );
+  }
 }

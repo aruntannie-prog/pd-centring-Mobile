@@ -33,8 +33,13 @@ class InvoicePreviewSheet extends StatelessWidget {
     final rbRent = bill.roundBoxes.fold(0.0, (s, b) => s + b.totalAmount);
     final ssTotalSqft = bill.sideSheets.fold(0.0, (s, e) => s + e.sqft);
     final ssRent = bill.sideSheets.fold(0.0, (s, e) => s + e.amount);
-    final rentTotal = mRent + cbRent + rbRent + ssRent;
-    final grandTotal = rentTotal + bill.vehicleChargeUp + bill.vehicleChargeDown;
+    
+    final palagaiRent = bill.palagai.fold(0.0, (s, p) => s + p.amount);
+    final muttuRent = bill.muttu.fold(0.0, (s, m) => s + m.amount);
+    final roofRent = bill.roofItems.fold(0.0, (s, r) => s + r.amount);
+
+    final rentTotal = mRent + cbRent + rbRent + ssRent + palagaiRent + muttuRent + roofRent;
+    final grandTotal = rentTotal + bill.vehicleChargeUp + bill.vehicleChargeDown + bill.labourChargeUp + bill.labourChargeDown;
     final balanceDue = grandTotal - bill.advancePaid;
 
     return DraggableScrollableSheet(
@@ -228,6 +233,51 @@ class InvoicePreviewSheet extends StatelessWidget {
                   const SizedBox(height: 12),
                 ],
 
+                // Palagai
+                if (bill.palagai.isNotEmpty) ...[
+                  _PreviewSection(
+                    title: 'PALAGAI',
+                    color: colors.indigo,
+                    colors: colors,
+                    context: context,
+                    rows: bill.palagai.map((e) => _PreviewRow(
+                        'Palagai ${e.length} · ${e.size} × ${e.qty}pcs @ ₹${e.rate.toStringAsFixed(0)}',
+                        '₹${e.amount.toStringAsFixed(0)}')).toList(),
+                    total: palagaiRent,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // Muttu
+                if (bill.muttu.isNotEmpty) ...[
+                  _PreviewSection(
+                    title: 'MUTTU',
+                    color: colors.brand,
+                    colors: colors,
+                    context: context,
+                    rows: bill.muttu.map((e) => _PreviewRow(
+                        'Muttu ${e.length} · ${e.size} × ${e.qty}pcs @ ₹${e.rate.toStringAsFixed(0)}',
+                        '₹${e.amount.toStringAsFixed(0)}')).toList(),
+                    total: muttuRent,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
+                // Roof Material
+                if (bill.roofItems.isNotEmpty) ...[
+                  _PreviewSection(
+                    title: 'ROOF MATERIAL',
+                    color: colors.teal,
+                    colors: colors,
+                    context: context,
+                    rows: bill.roofItems.map((e) => _PreviewRow(
+                        '${e.itemName} × ${e.qty}pcs @ ₹${e.rate.toStringAsFixed(0)}',
+                        '₹${e.amount.toStringAsFixed(0)}')).toList(),
+                    total: roofRent,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+
                 // Free-form materials
                 if (bill.materials.isNotEmpty) ...[
                   _PreviewSection(
@@ -260,6 +310,14 @@ class InvoicePreviewSheet extends StatelessWidget {
                     if (bill.vehicleChargeDown > 0) ...[
                       const SizedBox(height: 8),
                       _FinRow('Vehicle (DOWN)', '₹${bill.vehicleChargeDown.toStringAsFixed(2)}', colors, context),
+                    ],
+                    if (bill.labourChargeUp > 0) ...[
+                      const SizedBox(height: 8),
+                      _FinRow('Labour (UP)', '₹${bill.labourChargeUp.toStringAsFixed(2)}', colors, context),
+                    ],
+                    if (bill.labourChargeDown > 0) ...[
+                      const SizedBox(height: 8),
+                      _FinRow('Labour (DOWN)', '₹${bill.labourChargeDown.toStringAsFixed(2)}', colors, context),
                     ],
                     const Padding(padding: EdgeInsets.symmetric(vertical: 12), child: Divider(height: 1, thickness: 0.5)),
                     _FinRow('GRAND TOTAL', '₹${grandTotal.toStringAsFixed(2)}', colors, context, bold: true, large: true),

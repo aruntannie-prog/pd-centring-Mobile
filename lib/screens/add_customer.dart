@@ -46,8 +46,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
 
   // Background upload state — files start uploading immediately when picked
   Future<String>? _profileUploadFuture;
+  String? _profileUploadedUrl;   // set when profile upload completes
   bool _profileUploading = false;
   final List<Future<String>> _proofUploadFutures = [];
+  final List<String?> _proofUploadedUrls = [];  // set per-proof when upload completes
   final List<bool> _proofUploading = [];
 
   // Address proofs (multi-upload)
@@ -118,15 +120,18 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
 
   // ── Pick profile photo ─────────────────────────────────────────────────────
   Future<void> _pickProfile(ImageSource source) async {
-    final file = await ImagePicker().pickImage(
-        source: source, imageQuality: kIsWeb ? 40 : 70);
+    final file = await ImagePicker().pickImage(source: source, imageQuality: 85);
     if (file == null || !mounted) return;
     final bytes = await file.readAsBytes();
-    Uint8List crop = bytes, orig = bytes;
+    Uint8List crop, orig;
     if (!kIsWeb) {
       final c = await SmartCropper.cropToFace(bytes);
       crop = await ImageCompressor.compress(Uint8List.fromList(c));
-      orig = await ImageCompressor.compress(bytes, maxWidth: 1920, quality: 78);
+      orig = await ImageCompressor.compressForStorage(bytes);
+    } else {
+      // Web: compress via dart:image in isolate — same quality, much smaller
+      crop = await ImageCompressor.compress(bytes);
+      orig = await ImageCompressor.compressForStorage(bytes);
     }
     if (!mounted) return;
     setState(() {
@@ -138,16 +143,16 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     // On web: skip background upload to avoid CORS/auth hangs — base64 fallback at save.
     // On mobile: upload in background with a 30-second timeout.
     if (!kIsWeb) {
-      setState(() => _profileUploading = true);
+      setState(() { _profileUploading = true; _profileUploadedUrl = null; });
       final path = FirebaseUploadService.profilePath();
       _profileUploadFuture = FirebaseUploadService.uploadBytes(
         orig, path, contentType: 'image/jpeg',
       ).then((url) {
-        if (mounted) setState(() => _profileUploading = false);
+        if (mounted) setState(() { _profileUploading = false; _profileUploadedUrl = url.isNotEmpty ? url : null; });
         return url;
       }).catchError((e) {
         debugPrint('Profile upload error: $e');
-        if (mounted) setState(() => _profileUploading = false);
+        if (mounted) setState(() { _profileUploading = false; _profileUploadedUrl = null; });
         return ''; // empty → will fall back to base64 at save time
       });
     }
@@ -155,17 +160,14 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
 
   // ── Pick address proof from camera / gallery ──────────────────────────────
   Future<void> _pickAddressProofFromImage(ImageSource source) async {
-    final file = await ImagePicker().pickImage(
-        source: source, imageQuality: kIsWeb ? 40 : 70);
+    final file = await ImagePicker().pickImage(source: source, imageQuality: 85);
     if (file == null || !mounted) return;
 
     final isFirstEver = _existingProofUrls.isEmpty && _newProofBytes.isEmpty;
 
     final bytes = await file.readAsBytes();
-    Uint8List processed = bytes;
-    if (!kIsWeb) {
-      processed = await ImageCompressor.compress(bytes, maxWidth: 1600);
-    }
+    // Compress on all platforms — targets ~100-120 KB, keeps document details readable
+    final processed = await ImageCompressor.compressForStorage(bytes);
     final name = 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
     if (!mounted) return;
@@ -271,22 +273,26 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
       // Web: store a resolved future with empty URL; base64 used at save time
       _proofUploading.add(false);
       _proofUploadFutures.add(Future.value(''));
+      _proofUploadedUrls.add(null);
       return;
     }
     final mime = FirebaseUploadService.mimeForFile(fileName);
     final path = FirebaseUploadService.proofPath(fileName);
     final idx  = _proofUploading.length;
     _proofUploading.add(true);
+    _proofUploadedUrls.add(null);
     _proofUploadFutures.add(
       FirebaseUploadService.uploadBytes(bytes, path, contentType: mime).then((url) {
         if (mounted) setState(() {
           if (idx < _proofUploading.length) _proofUploading[idx] = false;
+          if (idx < _proofUploadedUrls.length) _proofUploadedUrls[idx] = url.isNotEmpty ? url : null;
         });
         return url;
       }).catchError((Object e) {
         debugPrint('Proof upload error: $e');
         if (mounted) setState(() {
           if (idx < _proofUploading.length) _proofUploading[idx] = false;
+          // leave _proofUploadedUrls[idx] = null → base64 fallback at save time
         });
         return ''; // empty → fall back to base64 at save time
       }),
@@ -515,37 +521,23 @@ class _AddCustomerScreenState extends State<AddCustomerScreen>
     String pUrl = _profileUrl ?? '';
     final allProofUrls = <String>[..._existingProofUrls];
 
-    try {
-      // Await background profile upload (should already be done by the time
-      // the user fills the form and taps Save — usually instant wait here).
-      if (_profileUploadFuture != null) {
-        pUrl = await _profileUploadFuture!;
-      }
-      // Fallback: base64 if upload failed or was never started
-      if (pUrl.isEmpty && (_localProfileBytes != null || _originalProfileBytes != null)) {
-        final toSave = _originalProfileBytes ?? _localProfileBytes!;
-        pUrl = 'data:image/jpeg;base64,${base64Encode(toSave)}';
-      }
+    // Use cached upload URL if available — no awaiting, saves instantly.
+    // If the background upload hasn't finished yet, fall back to base64.
+    if (pUrl.isEmpty) {
+      pUrl = _profileUploadedUrl ?? '';
+    }
+    if (pUrl.isEmpty && (_localProfileBytes != null || _originalProfileBytes != null)) {
+      final toSave = _originalProfileBytes ?? _localProfileBytes!;
+      pUrl = 'data:image/jpeg;base64,${base64Encode(toSave)}';
+    }
 
-      // Await background proof uploads, fallback to base64 per proof if needed
-      for (int i = 0; i < _newProofBytes.length; i++) {
-        String proofUrl = '';
-        if (i < _proofUploadFutures.length) {
-          proofUrl = await _proofUploadFutures[i];
-        }
-        if (proofUrl.isEmpty) {
-          final mime = FirebaseUploadService.mimeForFile(_newProofFileNames[i]);
-          proofUrl = 'data:$mime;base64,${base64Encode(_newProofBytes[i])}';
-        }
-        allProofUrls.add(proofUrl);
+    for (int i = 0; i < _newProofBytes.length; i++) {
+      String proofUrl = (i < _proofUploadedUrls.length ? _proofUploadedUrls[i] : null) ?? '';
+      if (proofUrl.isEmpty) {
+        final mime = FirebaseUploadService.mimeForFile(_newProofFileNames[i]);
+        proofUrl = 'data:$mime;base64,${base64Encode(_newProofBytes[i])}';
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Upload failed: $e')));
-        setState(() => _isSaving = false);
-      }
-      return;
+      allProofUrls.add(proofUrl);
     }
 
     final customer = Customer(

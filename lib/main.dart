@@ -336,14 +336,28 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  ThemeData _branchTheme(BuildContext context) {
+    final branch = context.watch<AppStore>().selectedBranch;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (branch == 'Rathinamangalam') {
+      return isDark ? AppTheme.darkThemeBranch2 : AppTheme.lightThemeBranch2;
+    }
+    return Theme.of(context);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final branchTheme = _branchTheme(context);
+
     if (_showSplash) return SplashScreen(onDone: _onSplashDone);
 
     if (_showBranchSelect) {
-      return BranchSelectScreen(
-        onSelected: _onBranchSelected,
-        isSwitching: context.read<AppStore>().selectedBranch.isNotEmpty,
+      return Theme(
+        data: branchTheme,
+        child: BranchSelectScreen(
+          onSelected: _onBranchSelected,
+          isSwitching: context.read<AppStore>().selectedBranch.isNotEmpty,
+        ),
       );
     }
 
@@ -407,7 +421,9 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
-    return PopScope(
+    return Theme(
+      data: branchTheme,
+      child: PopScope(
       canPop: _canPop(),
       onPopInvoked: (didPop) async {
         if (didPop) return;
@@ -436,7 +452,7 @@ class _AppShellState extends State<AppShell> {
           child: content,
         ),
       ),
-    );
+    ));
   }
 
   Widget _buildTab() {

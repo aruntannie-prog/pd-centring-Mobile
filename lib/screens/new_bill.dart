@@ -91,6 +91,35 @@ class _NewBillScreenState extends State<NewBillScreen>
   final Map<String, Map<int, TextEditingController>> _ssRateCtrl = {};
   final Map<String, Map<int, TextEditingController>> _ssDaysCtrl = {};
 
+  // Palagai tab state
+  static const _palagaiLengths = ['12', '9', '6', 'Runner'];
+  static const _sizeOptions = ['10', '9½', '9', '8½', '8', '7½', '7', '6½', '6', '5½', '5', '4½', '4', '3½', '3', '2½', '2', '1½', '1'];
+  String? _selectedPalagaiLength;
+  final List<String> _palagaiCardIds = [];
+  final Map<String, String> _palagaiCardType = {};
+  final Map<String, Set<String>> _addedPalagaiSizes = {};
+  final Map<String, Map<String, TextEditingController>> _palagaiQtyCtrl = {};
+  final Map<String, Map<String, TextEditingController>> _palagaiRateCtrl = {};
+  final Map<String, Map<String, TextEditingController>> _palagaiDaysCtrl = {};
+
+  // Muttu tab state
+  static const _muttuLengths = ['15', '12', '9', '6'];
+  String? _selectedMuttuLength;
+  final List<String> _muttuCardIds = [];
+  final Map<String, String> _muttuCardType = {};
+  final Map<String, Set<String>> _addedMuttuSizes = {};
+  final Map<String, Map<String, TextEditingController>> _muttuQtyCtrl = {};
+  final Map<String, Map<String, TextEditingController>> _muttuRateCtrl = {};
+  final Map<String, Map<String, TextEditingController>> _muttuDaysCtrl = {};
+
+  // Roof Material tab state
+  static const _roofItemsList = ['3x2 Sheet', '4x2 Sheet', 'Adjustment Sheet', 'Props Small', 'Props Medium', 'Props Big', 'Span Small', 'Span Big', 'Sheet'];
+  String? _selectedRoofItem;
+  final List<String> _addedRoofItems = [];
+  final Map<String, TextEditingController> _roofQtyCtrl = {};
+  final Map<String, TextEditingController> _roofRateCtrl = {};
+  final Map<String, TextEditingController> _roofDaysCtrl = {};
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +134,7 @@ class _NewBillScreenState extends State<NewBillScreen>
       _customerId = b.customerId;
       _siteCtrl.text = b.site;
       _baseDate = b.billDate;
+      _selectedBranch = b.branch.isNotEmpty ? b.branch : widget.branch;
       for (final m in b.materials) {
         _mats.add(MatEntry(
           name: m.name,
@@ -204,6 +234,57 @@ class _NewBillScreenState extends State<NewBillScreen>
               TextEditingController(text: e.days > 0 ? '${e.days}' : '');
         }
       }
+      
+      // Load Palagai — group by length
+      final Map<String, List<PalagaiEntry>> pGrouped = {};
+      for (final e in b.palagai) {
+        pGrouped.putIfAbsent(e.length, () => []).add(e);
+      }
+      for (final length in pGrouped.keys) {
+        final id = _uuid.v4();
+        _palagaiCardIds.add(id);
+        _palagaiCardType[id] = length;
+        _addedPalagaiSizes[id] = {};
+        _palagaiQtyCtrl[id] = {};
+        _palagaiRateCtrl[id] = {};
+        _palagaiDaysCtrl[id] = {};
+        for (final e in pGrouped[length]!) {
+          _addedPalagaiSizes[id]!.add(e.size);
+          _palagaiQtyCtrl[id]![e.size] = TextEditingController(text: e.qty > 0 ? '${e.qty}' : '')..addListener(() => setState(() {}));
+          _palagaiRateCtrl[id]![e.size] = TextEditingController(text: e.rate > 0 ? e.rate.toStringAsFixed(0) : '')..addListener(() => setState(() {}));
+          _palagaiDaysCtrl[id]![e.size] = TextEditingController(text: e.days > 0 ? '${e.days}' : '');
+        }
+      }
+
+      // Load Muttu — group by length
+      final Map<String, List<MuttuEntry>> mGrouped = {};
+      for (final e in b.muttu) {
+        mGrouped.putIfAbsent(e.length, () => []).add(e);
+      }
+      for (final length in mGrouped.keys) {
+        final id = _uuid.v4();
+        _muttuCardIds.add(id);
+        _muttuCardType[id] = length;
+        _addedMuttuSizes[id] = {};
+        _muttuQtyCtrl[id] = {};
+        _muttuRateCtrl[id] = {};
+        _muttuDaysCtrl[id] = {};
+        for (final e in mGrouped[length]!) {
+          _addedMuttuSizes[id]!.add(e.size);
+          _muttuQtyCtrl[id]![e.size] = TextEditingController(text: e.qty > 0 ? '${e.qty}' : '')..addListener(() => setState(() {}));
+          _muttuRateCtrl[id]![e.size] = TextEditingController(text: e.rate > 0 ? e.rate.toStringAsFixed(0) : '')..addListener(() => setState(() {}));
+          _muttuDaysCtrl[id]![e.size] = TextEditingController(text: e.days > 0 ? '${e.days}' : '');
+        }
+      }
+
+      // Load Roof Items
+      for (final e in b.roofItems) {
+        final item = e.itemName;
+        _addedRoofItems.add(item);
+        _roofQtyCtrl[item] = TextEditingController(text: e.qty > 0 ? '${e.qty}' : '')..addListener(() => setState(() {}));
+        _roofRateCtrl[item] = TextEditingController(text: e.rate > 0 ? e.rate.toStringAsFixed(0) : '')..addListener(() => setState(() {}));
+        _roofDaysCtrl[item] = TextEditingController(text: e.days > 0 ? '${e.days}' : '');
+      }
     } else {
       _selectedBranch = widget.branch;
       Future.microtask(() {
@@ -271,6 +352,19 @@ class _NewBillScreenState extends State<NewBillScreen>
       _ssRateCtrl[id]?.values.forEach((c) => c.dispose());
       _ssDaysCtrl[id]?.values.forEach((c) => c.dispose());
     }
+    for (final id in _palagaiCardIds) {
+      _palagaiQtyCtrl[id]?.values.forEach((c) => c.dispose());
+      _palagaiRateCtrl[id]?.values.forEach((c) => c.dispose());
+      _palagaiDaysCtrl[id]?.values.forEach((c) => c.dispose());
+    }
+    for (final id in _muttuCardIds) {
+      _muttuQtyCtrl[id]?.values.forEach((c) => c.dispose());
+      _muttuRateCtrl[id]?.values.forEach((c) => c.dispose());
+      _muttuDaysCtrl[id]?.values.forEach((c) => c.dispose());
+    }
+    _roofQtyCtrl.values.forEach((c) => c.dispose());
+    _roofRateCtrl.values.forEach((c) => c.dispose());
+    _roofDaysCtrl.values.forEach((c) => c.dispose());
     super.dispose();
   }
 
@@ -326,7 +420,12 @@ class _NewBillScreenState extends State<NewBillScreen>
     }
     final sideSheets = _buildSideSheets();
     const sideSheetRate = 0.0;
-    if (_mats.isEmpty && _columnBoxes.isEmpty && _roundBoxes.isEmpty && sideSheets.isEmpty) {
+    
+    final palagai = _buildPalagai();
+    final muttu = _buildMuttu();
+    final roofItems = _buildRoofItems();
+
+    if (_mats.isEmpty && _columnBoxes.isEmpty && _roundBoxes.isEmpty && sideSheets.isEmpty && palagai.isEmpty && muttu.isEmpty && roofItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: const Text('Please add at least one material, column box, or round box'),
@@ -356,6 +455,9 @@ class _NewBillScreenState extends State<NewBillScreen>
     }
 
     final store = context.read<AppStore>();
+    final effectiveBranch =
+        _selectedBranch.isNotEmpty ? _selectedBranch : widget.branch;
+    final origMats = widget.initialBill?.materials ?? [];
     final newBill = Bill(
       id: widget.initialBill?.id ?? _uuid.v4(),
       billNumber: _billNumCtrl.text.trim(),
@@ -364,30 +466,40 @@ class _NewBillScreenState extends State<NewBillScreen>
       customerId: _customerId,
       site: _siteCtrl.text,
       billDate: _baseDate,
-      branch: _selectedBranch,
+      branch: effectiveBranch,
       vehicleChargeUp: double.tryParse(_vehicleUpCtrl.text) ?? 0.0,
       vehicleChargeDown: double.tryParse(_vehicleDownCtrl.text) ?? 0.0,
       labourChargeUp: double.tryParse(_labourUpCtrl.text) ?? 0.0,
       labourChargeDown: double.tryParse(_labourDownCtrl.text) ?? 0.0,
       gstEnabled: _gstEnabled,
       advancePaid: double.tryParse(_advanceCtrl.text) ?? 0.0,
-      materials: _mats
-          .map((m) => RentalMaterial(
-                name: m.name,
-                days: m.days!,
-                dueDate: _baseDate.add(Duration(days: m.days!)),
-                quantity: m.quantity,
-                unit: m.unit,
-                rate: m.rate,
-              ))
-          .toList(),
+      materials: _mats.asMap().entries.map((entry) {
+            final i = entry.key;
+            final m = entry.value;
+            // Preserve original material's id, status, returnDate, dueDate
+            final orig = i < origMats.length ? origMats[i] : null;
+            return RentalMaterial(
+              id: orig?.id,
+              name: m.name,
+              days: m.days!,
+              dueDate: orig?.dueDate ?? _baseDate.add(Duration(days: m.days!)),
+              status: orig?.status ?? MaterialStatus.pending,
+              quantity: m.quantity,
+              unit: m.unit,
+              rate: m.rate,
+              returnDate: orig?.returnDate,
+            );
+          }).toList(),
       columnBoxes: _columnBoxes,
       roundBoxes: _roundBoxes,
-      isBilled: false,
-      parentId: null,
-      linkedDcIds: [],
+      isBilled: widget.initialBill?.isBilled ?? false,
+      parentId: widget.initialBill?.parentId,
+      linkedDcIds: widget.initialBill?.linkedDcIds ?? [],
       sideSheets: sideSheets,
-      sideSheetRate: sideSheetRate,
+      sideSheetRate: widget.initialBill?.sideSheetRate ?? sideSheetRate,
+      palagai: palagai,
+      muttu: muttu,
+      roofItems: roofItems,
     );
 
     if (widget.initialBill != null) {
@@ -717,9 +829,9 @@ class _NewBillScreenState extends State<NewBillScreen>
                   Tab(text: 'Column Box'),
                   Tab(text: 'Round Box'),
                   Tab(text: 'Palagai'),
-                  Tab(text: 'Runner'),
+                  Tab(text: 'Muttu'),
                   Tab(text: 'Side Sheet'),
-                  Tab(text: 'Others'),
+                  Tab(text: 'Roof Material'),
                 ],
               ),
               const SizedBox(height: 16),
@@ -729,20 +841,14 @@ class _NewBillScreenState extends State<NewBillScreen>
                 _buildColumnBoxTab(colors)
               else if (_matTabController.index == 1)
                 _buildRoundBoxTab(colors)
+              else if (_matTabController.index == 2)
+                _buildPalagaiTab(colors)
+              else if (_matTabController.index == 3)
+                _buildMuttuTab(colors)
               else if (_matTabController.index == 4)
                 _buildSideSheetTab(colors)
               else if (_matTabController.index == 5)
-                _buildOthersTab(colors, isDark)
-              else
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 32),
-                  child: Center(
-                    child: Text(
-                      'Coming soon',
-                      style: jakarta(context, size: 14, color: colors.textMuted),
-                    ),
-                  ),
-                ),
+                _buildRoofMaterialTab(colors),
 
               const SizedBox(height: 32),
               SectionHeader('FINANCIAL SUMMARY'),
@@ -758,7 +864,7 @@ class _NewBillScreenState extends State<NewBillScreen>
                     // Total Rent
                     _FinRow(
                       label: 'Total Rent',
-                      value: '₹${(_mats.fold(0.0, (s, m) => s + m.amount) + _columnBoxes.fold(0.0, (s, b) => s + b.totalAmount) + _roundBoxes.fold(0.0, (s, b) => s + b.totalAmount) + _ssTotalAmount).toStringAsFixed(0)}',
+                      value: '₹${(_mats.fold(0.0, (s, m) => s + m.amount) + _columnBoxes.fold(0.0, (s, b) => s + b.totalAmount) + _roundBoxes.fold(0.0, (s, b) => s + b.totalAmount) + _ssTotalAmount + _palagaiTotalAmount + _muttuTotalAmount + _roofTotalAmount).toStringAsFixed(0)}',
                       colors: colors,
                       context: context,
                     ),
@@ -783,7 +889,7 @@ class _NewBillScreenState extends State<NewBillScreen>
                       final rentTotal = _mats.fold(0.0, (s, m) => s + m.amount)
                           + _columnBoxes.fold(0.0, (s, b) => s + b.totalAmount)
                           + _roundBoxes.fold(0.0, (s, b) => s + b.totalAmount)
-                          + _ssTotalAmount;
+                          + _ssTotalAmount + _palagaiTotalAmount + _muttuTotalAmount + _roofTotalAmount;
                       final transport = (double.tryParse(_vehicleUpCtrl.text) ?? 0.0) + (double.tryParse(_vehicleDownCtrl.text) ?? 0.0);
                       final labour = (double.tryParse(_labourUpCtrl.text) ?? 0.0) + (double.tryParse(_labourDownCtrl.text) ?? 0.0);
                       final total = rentTotal + transport + labour;
@@ -946,6 +1052,206 @@ class _NewBillScreenState extends State<NewBillScreen>
     return total;
   }
 
+  // ── Palagai helpers ───────────────────────────────────────────────────────
+
+  List<PalagaiEntry> _buildPalagai() {
+    final entries = <PalagaiEntry>[];
+    for (final id in _palagaiCardIds) {
+      final type = _palagaiCardType[id]!;
+      for (final size in _addedPalagaiSizes[id] ?? <String>{}) {
+        final qty = int.tryParse(_palagaiQtyCtrl[id]?[size]?.text ?? '') ?? 0;
+        final rate = double.tryParse(_palagaiRateCtrl[id]?[size]?.text ?? '') ?? 0.0;
+        final days = int.tryParse(_palagaiDaysCtrl[id]?[size]?.text ?? '') ?? 0;
+        if (qty > 0) entries.add(PalagaiEntry(length: type, size: size, qty: qty, rate: rate, days: days));
+      }
+    }
+    return entries;
+  }
+
+  double get _palagaiTotalAmount {
+    double total = 0;
+    for (final id in _palagaiCardIds) {
+      for (final size in _addedPalagaiSizes[id] ?? <String>{}) {
+        final qty = int.tryParse(_palagaiQtyCtrl[id]?[size]?.text ?? '') ?? 0;
+        final rate = double.tryParse(_palagaiRateCtrl[id]?[size]?.text ?? '') ?? 0.0;
+        total += qty * rate;
+      }
+    }
+    return total;
+  }
+
+  // ── Muttu helpers ─────────────────────────────────────────────────────────
+
+  List<MuttuEntry> _buildMuttu() {
+    final entries = <MuttuEntry>[];
+    for (final id in _muttuCardIds) {
+      final type = _muttuCardType[id]!;
+      for (final size in _addedMuttuSizes[id] ?? <String>{}) {
+        final qty = int.tryParse(_muttuQtyCtrl[id]?[size]?.text ?? '') ?? 0;
+        final rate = double.tryParse(_muttuRateCtrl[id]?[size]?.text ?? '') ?? 0.0;
+        final days = int.tryParse(_muttuDaysCtrl[id]?[size]?.text ?? '') ?? 0;
+        if (qty > 0) entries.add(MuttuEntry(length: type, size: size, qty: qty, rate: rate, days: days));
+      }
+    }
+    return entries;
+  }
+
+  double get _muttuTotalAmount {
+    double total = 0;
+    for (final id in _muttuCardIds) {
+      for (final size in _addedMuttuSizes[id] ?? <String>{}) {
+        final qty = int.tryParse(_muttuQtyCtrl[id]?[size]?.text ?? '') ?? 0;
+        final rate = double.tryParse(_muttuRateCtrl[id]?[size]?.text ?? '') ?? 0.0;
+        total += qty * rate;
+      }
+    }
+    return total;
+  }
+
+  // ── Roof Material helpers ─────────────────────────────────────────────────
+
+  List<RoofMaterialEntry> _buildRoofItems() {
+    final entries = <RoofMaterialEntry>[];
+    for (final item in _addedRoofItems) {
+      final qty = int.tryParse(_roofQtyCtrl[item]?.text ?? '') ?? 0;
+      final rate = double.tryParse(_roofRateCtrl[item]?.text ?? '') ?? 0.0;
+      final days = int.tryParse(_roofDaysCtrl[item]?.text ?? '') ?? 0;
+      if (qty > 0) entries.add(RoofMaterialEntry(itemName: item, qty: qty, rate: rate, days: days));
+    }
+    return entries;
+  }
+
+  double get _roofTotalAmount {
+    double total = 0;
+    for (final item in _addedRoofItems) {
+      final qty = int.tryParse(_roofQtyCtrl[item]?.text ?? '') ?? 0;
+      final rate = double.tryParse(_roofRateCtrl[item]?.text ?? '') ?? 0.0;
+      total += qty * rate;
+    }
+    return total;
+  }
+
+  void _palagaiAddType(String type) {
+    final id = _uuid.v4();
+    setState(() {
+      _palagaiCardIds.add(id);
+      _palagaiCardType[id] = type;
+      _addedPalagaiSizes[id] = {};
+      _palagaiQtyCtrl[id] = {};
+      _palagaiRateCtrl[id] = {};
+      _palagaiDaysCtrl[id] = {};
+      _selectedPalagaiLength = null;
+    });
+  }
+
+  void _palagaiRemoveType(String cardId) {
+    _palagaiQtyCtrl[cardId]?.values.forEach((c) => c.dispose());
+    _palagaiRateCtrl[cardId]?.values.forEach((c) => c.dispose());
+    _palagaiDaysCtrl[cardId]?.values.forEach((c) => c.dispose());
+    setState(() {
+      _palagaiCardIds.remove(cardId);
+      _palagaiCardType.remove(cardId);
+      _addedPalagaiSizes.remove(cardId);
+      _palagaiQtyCtrl.remove(cardId);
+      _palagaiRateCtrl.remove(cardId);
+      _palagaiDaysCtrl.remove(cardId);
+    });
+  }
+
+  void _palagaiAddSize(String cardId, String size) {
+    if (_addedPalagaiSizes[cardId]?.contains(size) ?? false) return;
+    setState(() {
+      _addedPalagaiSizes[cardId]!.add(size);
+      _palagaiQtyCtrl[cardId]![size] = TextEditingController()..addListener(() => setState(() {}));
+      _palagaiRateCtrl[cardId]![size] = TextEditingController()..addListener(() => setState(() {}));
+      _palagaiDaysCtrl[cardId]![size] = TextEditingController();
+    });
+  }
+
+  void _palagaiRemoveSize(String cardId, String size) {
+    _palagaiQtyCtrl[cardId]?[size]?.dispose();
+    _palagaiRateCtrl[cardId]?[size]?.dispose();
+    _palagaiDaysCtrl[cardId]?[size]?.dispose();
+    setState(() {
+      _addedPalagaiSizes[cardId]?.remove(size);
+      _palagaiQtyCtrl[cardId]?.remove(size);
+      _palagaiRateCtrl[cardId]?.remove(size);
+      _palagaiDaysCtrl[cardId]?.remove(size);
+    });
+  }
+
+  void _muttuAddType(String type) {
+    final id = _uuid.v4();
+    setState(() {
+      _muttuCardIds.add(id);
+      _muttuCardType[id] = type;
+      _addedMuttuSizes[id] = {};
+      _muttuQtyCtrl[id] = {};
+      _muttuRateCtrl[id] = {};
+      _muttuDaysCtrl[id] = {};
+      _selectedMuttuLength = null;
+    });
+  }
+
+  void _muttuRemoveType(String cardId) {
+    _muttuQtyCtrl[cardId]?.values.forEach((c) => c.dispose());
+    _muttuRateCtrl[cardId]?.values.forEach((c) => c.dispose());
+    _muttuDaysCtrl[cardId]?.values.forEach((c) => c.dispose());
+    setState(() {
+      _muttuCardIds.remove(cardId);
+      _muttuCardType.remove(cardId);
+      _addedMuttuSizes.remove(cardId);
+      _muttuQtyCtrl.remove(cardId);
+      _muttuRateCtrl.remove(cardId);
+      _muttuDaysCtrl.remove(cardId);
+    });
+  }
+
+  void _muttuAddSize(String cardId, String size) {
+    if (_addedMuttuSizes[cardId]?.contains(size) ?? false) return;
+    setState(() {
+      _addedMuttuSizes[cardId]!.add(size);
+      _muttuQtyCtrl[cardId]![size] = TextEditingController()..addListener(() => setState(() {}));
+      _muttuRateCtrl[cardId]![size] = TextEditingController()..addListener(() => setState(() {}));
+      _muttuDaysCtrl[cardId]![size] = TextEditingController();
+    });
+  }
+
+  void _muttuRemoveSize(String cardId, String size) {
+    _muttuQtyCtrl[cardId]?[size]?.dispose();
+    _muttuRateCtrl[cardId]?[size]?.dispose();
+    _muttuDaysCtrl[cardId]?[size]?.dispose();
+    setState(() {
+      _addedMuttuSizes[cardId]?.remove(size);
+      _muttuQtyCtrl[cardId]?.remove(size);
+      _muttuRateCtrl[cardId]?.remove(size);
+      _muttuDaysCtrl[cardId]?.remove(size);
+    });
+  }
+
+  void _roofAddItem(String item) {
+    if (_addedRoofItems.contains(item)) return;
+    setState(() {
+      _addedRoofItems.add(item);
+      _roofQtyCtrl[item] = TextEditingController()..addListener(() => setState(() {}));
+      _roofRateCtrl[item] = TextEditingController()..addListener(() => setState(() {}));
+      _roofDaysCtrl[item] = TextEditingController();
+      _selectedRoofItem = null;
+    });
+  }
+
+  void _roofRemoveItem(String item) {
+    _roofQtyCtrl[item]?.dispose();
+    _roofRateCtrl[item]?.dispose();
+    _roofDaysCtrl[item]?.dispose();
+    setState(() {
+      _addedRoofItems.remove(item);
+      _roofQtyCtrl.remove(item);
+      _roofRateCtrl.remove(item);
+      _roofDaysCtrl.remove(item);
+    });
+  }
+
   void _ssAddType(String type) {
     final id = _uuid.v4();
     setState(() {
@@ -998,6 +1304,11 @@ class _NewBillScreenState extends State<NewBillScreen>
   void _showPreview(AppColors colors) {
     final sideSheets = _buildSideSheets();
     const sideSheetRate = 0.0;
+    final palagai = _buildPalagai();
+    final muttu = _buildMuttu();
+    final roofItems = _buildRoofItems();
+    final effectiveBranch =
+        _selectedBranch.isNotEmpty ? _selectedBranch : widget.branch;
 
     if (_customerName.isEmpty || _siteCtrl.text.isEmpty || _billNumCtrl.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -1007,7 +1318,7 @@ class _NewBillScreenState extends State<NewBillScreen>
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
       return;
     }
-    if (_mats.isEmpty && _columnBoxes.isEmpty && _roundBoxes.isEmpty && sideSheets.isEmpty) {
+    if (_mats.isEmpty && _columnBoxes.isEmpty && _roundBoxes.isEmpty && sideSheets.isEmpty && palagai.isEmpty && muttu.isEmpty && roofItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text('Please add at least one material'),
           backgroundColor: const Color(0xFFFF5555),
@@ -1025,7 +1336,7 @@ class _NewBillScreenState extends State<NewBillScreen>
       customerId: _customerId,
       site: _siteCtrl.text,
       billDate: _baseDate,
-      branch: _selectedBranch,
+      branch: effectiveBranch,
       vehicleChargeUp: double.tryParse(_vehicleUpCtrl.text) ?? 0.0,
       vehicleChargeDown: double.tryParse(_vehicleDownCtrl.text) ?? 0.0,
       labourChargeUp: double.tryParse(_labourUpCtrl.text) ?? 0.0,
@@ -1044,6 +1355,9 @@ class _NewBillScreenState extends State<NewBillScreen>
       roundBoxes: _roundBoxes,
       sideSheets: sideSheets,
       sideSheetRate: sideSheetRate,
+      palagai: palagai,
+      muttu: muttu,
+      roofItems: roofItems,
     );
 
     showModalBottomSheet(
@@ -1407,19 +1721,19 @@ class _NewBillScreenState extends State<NewBillScreen>
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 0, 36, 4),
               child: Row(children: [
-                SizedBox(width: 30, child: Text('Size', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                SizedBox(width: 25, child: Text('Size', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
                 const SizedBox(width: 4),
-                SizedBox(width: 52, child: Text('Qty', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                SizedBox(width: 45, child: Text('Qty', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
                 const SizedBox(width: 4),
                 SizedBox(width: 38, child: Text('×cf', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
                 const SizedBox(width: 4),
                 SizedBox(width: 44, child: Text('Sqft', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
                 const SizedBox(width: 4),
-                SizedBox(width: 56, child: Text('Rate', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                SizedBox(width: 50, child: Text('Rate', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
                 const SizedBox(width: 4),
                 SizedBox(width: 48, child: Text('Days', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
                 const SizedBox(width: 4),
-                Expanded(child: Text('Amt', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                Expanded(child: Text('Amt', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted), textAlign: TextAlign.right)),
               ]),
             ),
             ...sortedSizes.map((size) {
@@ -1431,18 +1745,18 @@ class _NewBillScreenState extends State<NewBillScreen>
               final sqft = size * qty * cf;
               final amount = sqft * rate;
               return Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 8, 8),
+                padding: const EdgeInsets.fromLTRB(12, 0, 4, 8),
                 child: Row(children: [
                   // Size
                   SizedBox(
-                    width: 30,
+                    width: 25,
                     child: Text('$size',
                         style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain)),
                   ),
                   const SizedBox(width: 4),
                   // Qty
                   SizedBox(
-                    width: 52,
+                    width: 45,
                     child: TextField(
                       controller: qtyCtrl,
                       keyboardType: TextInputType.number,
@@ -1457,7 +1771,7 @@ class _NewBillScreenState extends State<NewBillScreen>
                   SizedBox(
                     width: 38,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 7),
                       decoration: BoxDecoration(
                         color: colors.amberBg,
                         borderRadius: BorderRadius.circular(8),
@@ -1481,7 +1795,7 @@ class _NewBillScreenState extends State<NewBillScreen>
                   const SizedBox(width: 4),
                   // Rate
                   SizedBox(
-                    width: 56,
+                    width: 50,
                     child: TextField(
                       controller: rateCtrl,
                       keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1517,7 +1831,10 @@ class _NewBillScreenState extends State<NewBillScreen>
                   const SizedBox(width: 4),
                   GestureDetector(
                     onTap: () => _ssRemoveSize(cardId, size),
-                    child: Icon(Icons.close_rounded, size: 18, color: colors.textMuted),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Icon(Icons.close_rounded, size: 18, color: colors.textMuted),
+                    ),
                   ),
                 ]),
               );
@@ -2571,6 +2888,495 @@ class _NewBillScreenState extends State<NewBillScreen>
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  // ── Palagai tab UI ────────────────────────────────────────────────────────
+  
+  Widget _buildPalagaiTab(AppColors colors) {
+    final totalAmount = _palagaiTotalAmount;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (totalAmount > 0) ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: colors.amberBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.amberBd, width: 0.5),
+              ),
+              child: Text('Total ₹${totalAmount.toStringAsFixed(0)}',
+                  style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.amber)),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Length picker
+        Row(children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: _selectedPalagaiLength,
+              isExpanded: true,
+              hint: Text('Select Length…', style: jakarta(context, size: 13, color: colors.textMuted)),
+              items: _palagaiLengths
+                  .map((t) => DropdownMenuItem(
+                        value: t,
+                        child: Text(t, style: jakarta(context, size: 13, color: colors.textMain)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedPalagaiLength = v),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.border, width: 0.5)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.border, width: 0.5)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.amber, width: 1.5)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _selectedPalagaiLength != null ? () => _palagaiAddType(_selectedPalagaiLength!) : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: _selectedPalagaiLength != null ? colors.amber : colors.surfaceVariant,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('+ Add',
+                  style: jakarta(context, size: 13, weight: FontWeight.w700, color: _selectedPalagaiLength != null ? Colors.white : colors.textMuted)),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 12),
+
+        ..._palagaiCardIds.map((id) => _buildPalagaiBlock(id, colors)),
+      ],
+    );
+  }
+
+  Widget _buildPalagaiBlock(String cardId, AppColors colors) {
+    final type = _palagaiCardType[cardId] ?? '';
+    final activeSizes = _addedPalagaiSizes[cardId] ?? <String>{};
+    // To preserve the order of elements based on _sizeOptions, we'll sort based on index in _sizeOptions
+    final sortedSizes = activeSizes.toList()..sort((a, b) => _sizeOptions.indexOf(a).compareTo(_sizeOptions.indexOf(b)));
+
+    InputDecoration fieldDec(String hint) => InputDecoration(
+      hintText: hint,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.border, width: 0.5)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.border, width: 0.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.amber, width: 1.5)),
+    );
+
+    double typeAmount = 0;
+    for (final size in activeSizes) {
+      final qty = int.tryParse(_palagaiQtyCtrl[cardId]?[size]?.text ?? '') ?? 0;
+      final rate = double.tryParse(_palagaiRateCtrl[cardId]?[size]?.text ?? '') ?? 0.0;
+      typeAmount += qty * rate;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.border, width: 0.5)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 4, 6),
+            child: Row(children: [
+              Text(type == 'Runner' ? 'Runner' : 'Length: $type', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain)),
+              const Spacer(),
+              if (typeAmount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Text('₹${typeAmount.toStringAsFixed(0)}', style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.amber)),
+                ),
+              TextButton(
+                onPressed: () => _palagaiRemoveType(cardId),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                child: Text('Remove', style: jakarta(context, size: 12, weight: FontWeight.w600, color: Colors.redAccent)),
+              ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: _sizeOptions.map((s) {
+                final isOn = activeSizes.contains(s);
+                return GestureDetector(
+                  onTap: isOn ? null : () => _palagaiAddSize(cardId, s),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isOn ? colors.amber : colors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: isOn ? colors.amber : colors.border, width: 0.5),
+                    ),
+                    child: Text(s, style: jakarta(context, size: 11, weight: FontWeight.w700, color: isOn ? Colors.white : colors.textSub)),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          if (sortedSizes.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 36, 4),
+              child: Row(children: [
+                SizedBox(width: 40, child: Text('Size', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Qty', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Rate', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                const SizedBox(width: 8),
+                SizedBox(width: 52, child: Text('Days *', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.amber))),
+                const SizedBox(width: 8),
+                SizedBox(width: 60, child: Text('Amt', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted), textAlign: TextAlign.right)),
+              ]),
+            ),
+            ...sortedSizes.map((size) {
+              final qtyCtrl = _palagaiQtyCtrl[cardId]![size]!;
+              final rateCtrl = _palagaiRateCtrl[cardId]![size]!;
+              final daysCtrl = _palagaiDaysCtrl[cardId]![size]!;
+              final qty = int.tryParse(qtyCtrl.text) ?? 0;
+              final rate = double.tryParse(rateCtrl.text) ?? 0.0;
+              final days = int.tryParse(daysCtrl.text) ?? 0;
+              final amount = qty * rate;
+              final daysEmpty = days == 0;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 8, 8),
+                child: Row(children: [
+                  SizedBox(width: 40, child: Text(size, style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain))),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: qtyCtrl, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('0'), onChanged: (_) => setState(() {}))),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: rateCtrl, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('₹'), onChanged: (_) => setState(() {}))),
+                  const SizedBox(width: 8),
+                  SizedBox(width: 52, child: TextField(controller: daysCtrl, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('0').copyWith(enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: daysEmpty ? colors.amber.withOpacity(0.5) : colors.border, width: daysEmpty ? 1.5 : 0.5))), onChanged: (_) => setState(() {}))),
+                  const SizedBox(width: 8),
+                  SizedBox(width: 60, child: Text(amount > 0 ? '₹${amount.toStringAsFixed(0)}' : '—', style: jakarta(context, size: 13, weight: FontWeight.w700, color: amount > 0 ? colors.amber : colors.textMuted), textAlign: TextAlign.right)),
+                  IconButton(icon: Icon(Icons.close_rounded, size: 16, color: colors.textMuted), onPressed: () => _palagaiRemoveSize(cardId, size), padding: const EdgeInsets.all(6), constraints: const BoxConstraints()),
+                ]),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Muttu tab UI ────────────────────────────────────────────────────────
+  
+  Widget _buildMuttuTab(AppColors colors) {
+    final totalAmount = _muttuTotalAmount;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (totalAmount > 0) ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: colors.amberBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.amberBd, width: 0.5),
+              ),
+              child: Text('Total ₹${totalAmount.toStringAsFixed(0)}',
+                  style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.amber)),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Length picker
+        Row(children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: _selectedMuttuLength,
+              isExpanded: true,
+              hint: Text('Select Length…', style: jakarta(context, size: 13, color: colors.textMuted)),
+              items: _muttuLengths
+                  .map((t) => DropdownMenuItem(
+                        value: t,
+                        child: Text(t, style: jakarta(context, size: 13, color: colors.textMain)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedMuttuLength = v),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.border, width: 0.5)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.border, width: 0.5)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.amber, width: 1.5)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _selectedMuttuLength != null ? () => _muttuAddType(_selectedMuttuLength!) : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: _selectedMuttuLength != null ? colors.amber : colors.surfaceVariant,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('+ Add',
+                  style: jakarta(context, size: 13, weight: FontWeight.w700, color: _selectedMuttuLength != null ? Colors.white : colors.textMuted)),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 12),
+
+        ..._muttuCardIds.map((id) => _buildMuttuBlock(id, colors)),
+      ],
+    );
+  }
+
+  Widget _buildMuttuBlock(String cardId, AppColors colors) {
+    final type = _muttuCardType[cardId] ?? '';
+    final activeSizes = _addedMuttuSizes[cardId] ?? <String>{};
+    final sortedSizes = activeSizes.toList()..sort((a, b) => _sizeOptions.indexOf(a).compareTo(_sizeOptions.indexOf(b)));
+
+    InputDecoration fieldDec(String hint) => InputDecoration(
+      hintText: hint,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.border, width: 0.5)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.border, width: 0.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.amber, width: 1.5)),
+    );
+
+    double typeAmount = 0;
+    for (final size in activeSizes) {
+      final qty = int.tryParse(_muttuQtyCtrl[cardId]?[size]?.text ?? '') ?? 0;
+      final rate = double.tryParse(_muttuRateCtrl[cardId]?[size]?.text ?? '') ?? 0.0;
+      typeAmount += qty * rate;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.border, width: 0.5)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 4, 6),
+            child: Row(children: [
+              Text('Length: $type', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain)),
+              const Spacer(),
+              if (typeAmount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Text('₹${typeAmount.toStringAsFixed(0)}', style: jakarta(context, size: 12, weight: FontWeight.w700, color: colors.amber)),
+                ),
+              TextButton(
+                onPressed: () => _muttuRemoveType(cardId),
+                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4), minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                child: Text('Remove', style: jakarta(context, size: 12, weight: FontWeight.w600, color: Colors.redAccent)),
+              ),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: _sizeOptions.map((s) {
+                final isOn = activeSizes.contains(s);
+                return GestureDetector(
+                  onTap: isOn ? null : () => _muttuAddSize(cardId, s),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isOn ? colors.amber : colors.surfaceVariant,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: isOn ? colors.amber : colors.border, width: 0.5),
+                    ),
+                    child: Text(s, style: jakarta(context, size: 11, weight: FontWeight.w700, color: isOn ? Colors.white : colors.textSub)),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+          if (sortedSizes.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 36, 4),
+              child: Row(children: [
+                SizedBox(width: 40, child: Text('Size', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Qty', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Rate', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                const SizedBox(width: 8),
+                SizedBox(width: 52, child: Text('Days *', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.amber))),
+                const SizedBox(width: 8),
+                SizedBox(width: 60, child: Text('Amt', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted), textAlign: TextAlign.right)),
+              ]),
+            ),
+            ...sortedSizes.map((size) {
+              final qtyCtrl = _muttuQtyCtrl[cardId]![size]!;
+              final rateCtrl = _muttuRateCtrl[cardId]![size]!;
+              final daysCtrl = _muttuDaysCtrl[cardId]![size]!;
+              final qty = int.tryParse(qtyCtrl.text) ?? 0;
+              final rate = double.tryParse(rateCtrl.text) ?? 0.0;
+              final days = int.tryParse(daysCtrl.text) ?? 0;
+              final amount = qty * rate;
+              final daysEmpty = days == 0;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 8, 8),
+                child: Row(children: [
+                  SizedBox(width: 40, child: Text(size, style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain))),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: qtyCtrl, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('0'), onChanged: (_) => setState(() {}))),
+                  const SizedBox(width: 8),
+                  Expanded(child: TextField(controller: rateCtrl, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('₹'), onChanged: (_) => setState(() {}))),
+                  const SizedBox(width: 8),
+                  SizedBox(width: 52, child: TextField(controller: daysCtrl, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('0').copyWith(enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: daysEmpty ? colors.amber.withOpacity(0.5) : colors.border, width: daysEmpty ? 1.5 : 0.5))), onChanged: (_) => setState(() {}))),
+                  const SizedBox(width: 8),
+                  SizedBox(width: 60, child: Text(amount > 0 ? '₹${amount.toStringAsFixed(0)}' : '—', style: jakarta(context, size: 13, weight: FontWeight.w700, color: amount > 0 ? colors.amber : colors.textMuted), textAlign: TextAlign.right)),
+                  IconButton(icon: Icon(Icons.close_rounded, size: 16, color: colors.textMuted), onPressed: () => _muttuRemoveSize(cardId, size), padding: const EdgeInsets.all(6), constraints: const BoxConstraints()),
+                ]),
+              );
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── Roof Material tab UI ──────────────────────────────────────────────────
+  
+  Widget _buildRoofMaterialTab(AppColors colors) {
+    final totalAmount = _roofTotalAmount;
+
+    InputDecoration fieldDec(String hint) => InputDecoration(
+      hintText: hint,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.border, width: 0.5)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.border, width: 0.5)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: colors.amber, width: 1.5)),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (totalAmount > 0) ...[
+          Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: colors.amberBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: colors.amberBd, width: 0.5),
+              ),
+              child: Text('Total ₹${totalAmount.toStringAsFixed(0)}',
+                  style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.amber)),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // Item picker
+        Row(children: [
+          Expanded(
+            child: DropdownButtonFormField<String>(
+              value: _selectedRoofItem,
+              isExpanded: true,
+              hint: Text('Select Material…', style: jakarta(context, size: 13, color: colors.textMuted)),
+              items: _roofItemsList
+                  .map((t) => DropdownMenuItem(
+                        value: t,
+                        child: Text(t, style: jakarta(context, size: 13, color: colors.textMain)),
+                      ))
+                  .toList(),
+              onChanged: (v) => setState(() => _selectedRoofItem = v),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.border, width: 0.5)),
+                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.border, width: 0.5)),
+                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: colors.amber, width: 1.5)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: _selectedRoofItem != null ? () => _roofAddItem(_selectedRoofItem!) : null,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+              decoration: BoxDecoration(
+                color: _selectedRoofItem != null ? colors.amber : colors.surfaceVariant,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text('+ Add',
+                  style: jakarta(context, size: 13, weight: FontWeight.w700, color: _selectedRoofItem != null ? Colors.white : colors.textMuted)),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 12),
+
+        if (_addedRoofItems.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+            decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.border, width: 0.5)),
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(0, 0, 32, 8),
+                  child: Row(children: [
+                    Expanded(flex: 3, child: Text('Item', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                    const SizedBox(width: 8),
+                    Expanded(flex: 2, child: Text('Qty', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                    const SizedBox(width: 8),
+                    Expanded(flex: 2, child: Text('Rate', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted))),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 52, child: Text('Days *', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.amber))),
+                    const SizedBox(width: 8),
+                    SizedBox(width: 60, child: Text('Amt', style: jakarta(context, size: 10, weight: FontWeight.w700, color: colors.textMuted), textAlign: TextAlign.right)),
+                  ]),
+                ),
+                ..._addedRoofItems.map((item) {
+                  final qtyCtrl = _roofQtyCtrl[item]!;
+                  final rateCtrl = _roofRateCtrl[item]!;
+                  final daysCtrl = _roofDaysCtrl[item]!;
+                  final qty = int.tryParse(qtyCtrl.text) ?? 0;
+                  final rate = double.tryParse(rateCtrl.text) ?? 0.0;
+                  final days = int.tryParse(daysCtrl.text) ?? 0;
+                  final amount = qty * rate;
+                  final daysEmpty = days == 0;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(children: [
+                      Expanded(flex: 3, child: Text(item, style: jakarta(context, size: 13, weight: FontWeight.w800, color: colors.textMain), overflow: TextOverflow.ellipsis, maxLines: 1)),
+                      const SizedBox(width: 8),
+                      Expanded(flex: 2, child: TextField(controller: qtyCtrl, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('0'), onChanged: (_) => setState(() {}))),
+                      const SizedBox(width: 8),
+                      Expanded(flex: 2, child: TextField(controller: rateCtrl, keyboardType: const TextInputType.numberWithOptions(decimal: true), inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('₹'), onChanged: (_) => setState(() {}))),
+                      const SizedBox(width: 8),
+                      SizedBox(width: 52, child: TextField(controller: daysCtrl, keyboardType: TextInputType.number, inputFormatters: [FilteringTextInputFormatter.digitsOnly], style: jakarta(context, size: 13, color: colors.textMain), decoration: fieldDec('0').copyWith(enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: daysEmpty ? colors.amber.withOpacity(0.5) : colors.border, width: daysEmpty ? 1.5 : 0.5))), onChanged: (_) => setState(() {}))),
+                      const SizedBox(width: 8),
+                      SizedBox(width: 60, child: Text(amount > 0 ? '₹${amount.toStringAsFixed(0)}' : '—', style: jakarta(context, size: 13, weight: FontWeight.w700, color: amount > 0 ? colors.amber : colors.textMuted), textAlign: TextAlign.right)),
+                      IconButton(icon: Icon(Icons.close_rounded, size: 16, color: colors.textMuted), onPressed: () => _roofRemoveItem(item), padding: const EdgeInsets.all(6), constraints: const BoxConstraints()),
+                    ]),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }

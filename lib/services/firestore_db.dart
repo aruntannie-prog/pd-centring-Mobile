@@ -60,6 +60,42 @@ class FirestoreDb {
                 .toList();
           }
 
+          // palagai
+          final rawPalagai = data['palagai'];
+          List<PalagaiEntry> palagaiList = [];
+          if (rawPalagai is String && rawPalagai.startsWith('[')) {
+            palagaiList = (jsonDecode(rawPalagai) as List)
+                .map((e) => PalagaiEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList();
+          }
+
+          // muttu
+          final rawMuttu = data['muttu'];
+          List<MuttuEntry> muttuList = [];
+          if (rawMuttu is String && rawMuttu.startsWith('[')) {
+            muttuList = (jsonDecode(rawMuttu) as List)
+                .map((e) => MuttuEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList();
+          }
+
+          // roof
+          final rawRoof = data['roofItems'];
+          List<RoofMaterialEntry> roofList = [];
+          if (rawRoof is String && rawRoof.startsWith('[')) {
+            roofList = (jsonDecode(rawRoof) as List)
+                .map((e) => RoofMaterialEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList();
+          }
+
+          // sideSheets
+          final rawSS = data['sideSheets'];
+          List<SideSheetEntry> ssEntries = [];
+          if (rawSS is String && rawSS.startsWith('[')) {
+            ssEntries = (jsonDecode(rawSS) as List)
+                .map((e) => SideSheetEntry.fromJson(Map<String, dynamic>.from(e)))
+                .toList();
+          }
+
           results.add(Bill(
             id: doc.id,
             billNumber: data['billNumber'] ?? '',
@@ -86,6 +122,10 @@ class FirestoreDb {
             isBilled: data['isBilled'] as bool? ?? false,
             parentId: data['parentId'] as String?,
             linkedDcIds: List<String>.from(data['linkedDcIds'] ?? []),
+            palagai: palagaiList,
+            muttu: muttuList,
+            roofItems: roofList,
+            sideSheets: ssEntries,
           ));
         } catch (e) {
           print('FirestoreDb: Error parsing bill ${doc.id}: $e');
@@ -106,6 +146,11 @@ class FirestoreDb {
           jsonEncode(bill.columnBoxes.map((b) => b.toJson()).toList());
       final roundBoxesJson =
           jsonEncode(bill.roundBoxes.map((b) => b.toJson()).toList());
+      
+      final palagaiJson = jsonEncode(bill.palagai.map((e) => e.toJson()).toList());
+      final muttuJson = jsonEncode(bill.muttu.map((e) => e.toJson()).toList());
+      final roofJson = jsonEncode(bill.roofItems.map((e) => e.toJson()).toList());
+      final sideSheetsJson = jsonEncode(bill.sideSheets.map((e) => e.toJson()).toList());
 
       await _bills.doc(bill.id).set({
         'billNumber': bill.billNumber,
@@ -127,6 +172,10 @@ class FirestoreDb {
         'isBilled': bill.isBilled,
         'parentId': bill.parentId,
         'linkedDcIds': bill.linkedDcIds,
+        'palagai': palagaiJson,
+        'muttu': muttuJson,
+        'roofItems': roofJson,
+        'sideSheets': sideSheetsJson,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       print('FirestoreDb: ✅ Bill saved: ${bill.id}');

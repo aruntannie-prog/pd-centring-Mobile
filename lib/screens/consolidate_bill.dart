@@ -38,7 +38,10 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
   final _billNumCtrl = TextEditingController();
   final _vehicleUpCtrl = TextEditingController();
   final _vehicleDownCtrl = TextEditingController();
+  final _labourUpCtrl = TextEditingController();
+  final _labourDownCtrl = TextEditingController();
   final _advanceCtrl = TextEditingController();
+  bool _gstEnabled = false;
   DateTime _billDate = DateTime.now();
   List<Bill> _availableDCs = [];
   List<String> _selectedDcIds = [];
@@ -87,6 +90,8 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
     _billNumCtrl.dispose();
     _vehicleUpCtrl.dispose();
     _vehicleDownCtrl.dispose();
+    _labourUpCtrl.dispose();
+    _labourDownCtrl.dispose();
     _advanceCtrl.dispose();
     super.dispose();
   }
@@ -107,9 +112,14 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
       _selectedDCs.fold(0.0, (s, dc) => s + dc.rentTotal);
   double get _vehicleUp => double.tryParse(_vehicleUpCtrl.text) ?? 0.0;
   double get _vehicleDown => double.tryParse(_vehicleDownCtrl.text) ?? 0.0;
+  double get _labourUp => double.tryParse(_labourUpCtrl.text) ?? 0.0;
+  double get _labourDown => double.tryParse(_labourDownCtrl.text) ?? 0.0;
   double get _advance => double.tryParse(_advanceCtrl.text) ?? 0.0;
-  double get _grandTotal => _dcRentTotal + _vehicleUp + _vehicleDown;
-  double get _balanceDue => _grandTotal - _advance;
+  double get _grandTotal => _dcRentTotal + _vehicleUp + _vehicleDown + _labourUp + _labourDown;
+  double get _sgst => _gstEnabled ? _grandTotal * 0.09 : 0.0;
+  double get _cgst => _gstEnabled ? _grandTotal * 0.09 : 0.0;
+  double get _totalWithGst => _grandTotal + _sgst + _cgst;
+  double get _balanceDue => (_gstEnabled ? _totalWithGst : _grandTotal) - _advance;
 
   String _fmt(DateTime d) {
     const mo = [
@@ -139,6 +149,14 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
         _selectedDCs.expand((dc) => dc.columnBoxes).toList();
     final allRoundBoxes =
         _selectedDCs.expand((dc) => dc.roundBoxes).toList();
+    final allSideSheets =
+        _selectedDCs.expand((dc) => dc.sideSheets).toList();
+    final allPalagai =
+        _selectedDCs.expand((dc) => dc.palagai).toList();
+    final allMuttu =
+        _selectedDCs.expand((dc) => dc.muttu).toList();
+    final allRoofItems =
+        _selectedDCs.expand((dc) => dc.roofItems).toList();
 
     final site = _siteCtrl.text.trim().isNotEmpty
         ? _siteCtrl.text.trim()
@@ -156,8 +174,15 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
       materials: allMaterials,
       columnBoxes: allColumnBoxes,
       roundBoxes: allRoundBoxes,
+      sideSheets: allSideSheets,
+      palagai: allPalagai,
+      muttu: allMuttu,
+      roofItems: allRoofItems,
       vehicleChargeUp: _vehicleUp,
       vehicleChargeDown: _vehicleDown,
+      labourChargeUp: _labourUp,
+      labourChargeDown: _labourDown,
+      gstEnabled: _gstEnabled,
       advancePaid: _advance,
       linkedDcIds: _selectedDcIds,
     );
@@ -692,6 +717,18 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
                         ctrl: _vehicleDownCtrl,
                         colors: colors,
                         onChanged: () => setState(() {})),
+                    const SizedBox(height: 8),
+                    _ConChargeRow(
+                        label: 'Labour Charge (UP)',
+                        ctrl: _labourUpCtrl,
+                        colors: colors,
+                        onChanged: () => setState(() {})),
+                    const SizedBox(height: 8),
+                    _ConChargeRow(
+                        label: 'Labour Charge (DOWN)',
+                        ctrl: _labourDownCtrl,
+                        colors: colors,
+                        onChanged: () => setState(() {})),
                     Divider(
                         height: 24,
                         thickness: 0.5,
@@ -713,6 +750,49 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
                                       fontWeight: FontWeight.w900,
                                       color: colors.teal)),
                         ]),
+                    const SizedBox(height: 16),
+                    // GST Toggle
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _gstEnabled ? colors.tealBg : colors.surfaceVariant,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: _gstEnabled ? colors.tealBd : colors.border, width: 0.5),
+                      ),
+                      child: Row(children: [
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text('GST Billing (18%)',
+                                style: jakarta(context, size: 13, weight: FontWeight.w700, color: colors.textMain)),
+                            Text('SGST 9% + CGST 9%',
+                                style: jakarta(context, size: 11, color: colors.textMuted)),
+                          ]),
+                        ),
+                        Switch(
+                          value: _gstEnabled,
+                          activeColor: colors.teal,
+                          onChanged: (v) => setState(() => _gstEnabled = v),
+                        ),
+                      ]),
+                    ),
+                    if (_gstEnabled) ...[
+                      const SizedBox(height: 12),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text('SGST (9%)', style: jakarta(context, size: 13, weight: FontWeight.w600, color: colors.textMuted)),
+                        Text('₹${_sgst.toStringAsFixed(0)}', style: jakarta(context, size: 13, weight: FontWeight.w700, color: colors.textMuted)),
+                      ]),
+                      const SizedBox(height: 4),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text('CGST (9%)', style: jakarta(context, size: 13, weight: FontWeight.w600, color: colors.textMuted)),
+                        Text('₹${_cgst.toStringAsFixed(0)}', style: jakarta(context, size: 13, weight: FontWeight.w700, color: colors.textMuted)),
+                      ]),
+                      const SizedBox(height: 8),
+                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                        Text('Total incl. GST', style: jakarta(context, size: 14, weight: FontWeight.w800, color: colors.textMain)),
+                        Text('₹${_totalWithGst.toStringAsFixed(0)}',
+                            style: GoogleFonts.playfairDisplay(fontSize: 17, fontWeight: FontWeight.w900, color: colors.teal)),
+                      ]),
+                    ],
                     Divider(
                         height: 24,
                         thickness: 0.5,
@@ -854,7 +934,11 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
               children: [
                 if (dc.materials.isEmpty &&
                     dc.columnBoxes.isEmpty &&
-                    dc.roundBoxes.isEmpty)
+                    dc.roundBoxes.isEmpty &&
+                    dc.sideSheets.isEmpty &&
+                    dc.palagai.isEmpty &&
+                    dc.muttu.isEmpty &&
+                    dc.roofItems.isEmpty)
                   Text('No materials',
                       style:
                           jakarta(context, size: 12, color: colors.textMuted)),
@@ -886,6 +970,42 @@ class _ConsolidateBillScreenState extends State<ConsolidateBillScreen> {
                         b.totalQty > 0 ? '${b.totalQty} pcs' : null,
                     amount: b.totalAmount > 0
                         ? '₹${b.totalAmount.toStringAsFixed(0)}'
+                        : null,
+                    colors: colors,
+                    context: context)),
+                ...dc.sideSheets.map((e) => _MatLine(
+                    dot: colors.amber,
+                    label: '${e.sheetType} Sheet · Size ${e.size}',
+                    detail: '${e.qty} pcs · ${e.sqft.toStringAsFixed(1)} sqft',
+                    amount: e.amount > 0
+                        ? '₹${e.amount.toStringAsFixed(0)}'
+                        : null,
+                    colors: colors,
+                    context: context)),
+                ...dc.palagai.map((e) => _MatLine(
+                    dot: colors.amber,
+                    label: 'Palagai ${e.length} · ${e.size}',
+                    detail: '${e.qty} pcs',
+                    amount: e.amount > 0
+                        ? '₹${e.amount.toStringAsFixed(0)}'
+                        : null,
+                    colors: colors,
+                    context: context)),
+                ...dc.muttu.map((e) => _MatLine(
+                    dot: colors.amber,
+                    label: 'Muttu ${e.length} · ${e.size}',
+                    detail: '${e.qty} pcs',
+                    amount: e.amount > 0
+                        ? '₹${e.amount.toStringAsFixed(0)}'
+                        : null,
+                    colors: colors,
+                    context: context)),
+                ...dc.roofItems.map((e) => _MatLine(
+                    dot: colors.indigo,
+                    label: e.itemName,
+                    detail: '${e.qty} pcs',
+                    amount: e.amount > 0
+                        ? '₹${e.amount.toStringAsFixed(0)}'
                         : null,
                     colors: colors,
                     context: context)),

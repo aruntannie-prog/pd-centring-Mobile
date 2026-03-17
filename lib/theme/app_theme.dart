@@ -169,6 +169,57 @@ class AppColors extends ThemeExtension<AppColors> {
     highlight: Color(0xFFFFFFFF), // Shine
   );
 
+  // ── Rathinamangalam branch: Purple / Violet identity ──────────────────────
+  static const lightBranch2 = AppColors(
+    brand: Color(0xFF5B21B6),       // Deep Violet (was Navy)
+    brandLight: Color(0xFF7C3AED),
+    teal: Color(0xFF097A6B),
+    tealBg: Color(0xFFE2F5F3),
+    tealBd: Color(0xFFBBE5DF),
+    red: Color(0xFFB80F1E),
+    redBg: Color(0xFFFCEAEB),
+    redBd: Color(0xFFF4C4C7),
+    amber: Color(0xFFA85600),
+    amberBg: Color(0xFFFFF2E2),
+    amberBd: Color(0xFFFFDAB2),
+    indigo: Color(0xFF6D28D9),      // Violet (was Indigo-blue)
+    indigoBg: Color(0xFFEDE9FE),
+    indigoBd: Color(0xFFC4B5FD),
+    textMain: Color(0xFF0A1628),
+    textSub: Color(0xFF3A4E68),
+    textMuted: Color(0xFF6A7A90),
+    surface: Color(0xFFFFFFFF),
+    surfaceVariant: Color(0xFFF5F3FF),  // Subtle violet tint
+    border: Color(0xFFE4DEFF),
+    glow: Color(0x14040A18),
+    highlight: Color(0xFFFFFFFF),
+  );
+
+  static const darkBranch2 = AppColors(
+    brand: Color(0xFFDDD6FE),       // Light Violet (was Off-white/Ice)
+    brandLight: Color(0xFFA78BFA),
+    teal: Color(0xFF20E5CD),
+    tealBg: Color(0x2620E5CD),
+    tealBd: Color(0x5920E5CD),
+    red: Color(0xFFFF4D5E),
+    redBg: Color(0x26FF4D5E),
+    redBd: Color(0x59FF4D5E),
+    amber: Color(0xFFFFB347),
+    amberBg: Color(0x26FFB347),
+    amberBd: Color(0x59FFB347),
+    indigo: Color(0xFFA78BFA),      // Neon Violet (was Neon Indigo)
+    indigoBg: Color(0x26A78BFA),
+    indigoBd: Color(0x59A78BFA),
+    textMain: Color(0xFFF4F8FC),
+    textSub: Color(0xFFC8D4E0),
+    textMuted: Color(0xFF6A7A90),
+    surface: Color(0xFF100D1A),     // Deep dark with purple tint
+    surfaceVariant: Color(0xFF1A1628),
+    border: Color(0xFF2E2440),
+    glow: Color(0x66000000),
+    highlight: Color(0x14FFFFFF),
+  );
+
   static const dark = AppColors(
     brand: Color(0xFFE8F0F8), // Off-white/Ice
     brandLight: Color(0xFF9AAABB),
@@ -238,6 +289,70 @@ class AppTheme {
         seedColor: const Color(0xFF20E5CD),
         brightness: Brightness.dark,
         background: const Color(0xFF050A14),
+        surface: colors.surface,
+      ),
+      extensions: <ThemeExtension<dynamic>>[colors],
+      textTheme: GoogleFonts.plusJakartaSansTextTheme().apply(
+        bodyColor: colors.textMain,
+        displayColor: colors.textMain,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        foregroundColor: colors.textMain,
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+          color: colors.textMain,
+        ),
+      ),
+    );
+  }
+
+  // ── Rathinamangalam branch themes ──────────────────────────────────────────
+
+  static ThemeData get lightThemeBranch2 {
+    final colors = AppColors.lightBranch2;
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF8F6FF), // Soft violet-white
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF6D28D9),
+        brightness: Brightness.light,
+        background: const Color(0xFFF8F6FF),
+        surface: colors.surface,
+      ),
+      extensions: <ThemeExtension<dynamic>>[colors],
+      textTheme: GoogleFonts.plusJakartaSansTextTheme().apply(
+        bodyColor: colors.textMain,
+        displayColor: colors.textMain,
+      ),
+      appBarTheme: AppBarTheme(
+        backgroundColor: Colors.transparent,
+        foregroundColor: colors.textMain,
+        elevation: 0,
+        centerTitle: true,
+        titleTextStyle: GoogleFonts.plusJakartaSans(
+          fontSize: 17,
+          fontWeight: FontWeight.w800,
+          color: colors.textMain,
+        ),
+      ),
+    );
+  }
+
+  static ThemeData get darkThemeBranch2 {
+    final colors = AppColors.darkBranch2;
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF08070F), // Deep violet-black
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFFA78BFA),
+        brightness: Brightness.dark,
+        background: const Color(0xFF08070F),
         surface: colors.surface,
       ),
       extensions: <ThemeExtension<dynamic>>[colors],

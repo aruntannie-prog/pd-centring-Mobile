@@ -1,10 +1,8 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'bill.dart';
 import 'customer.dart';
 import '../services/firestore_db.dart';
-import '../services/drive_api.dart';
 import '../services/storage.dart';
 import 'dart:typed_data';
 
@@ -138,6 +136,11 @@ class AppStore extends ChangeNotifier {
   Future<void> initialize() async {
     print('AppStore: Initializing boot sequence...');
 
+    // Initialize Firestore offline persistence FIRST — must be done before
+    // any Firestore operation so writes are persisted locally even if the
+    // network write doesn't complete before the app closes.
+    await FirestoreDb.init();
+
     // Load saved branch preference
     _selectedBranch = LocalStorage.getPreference('selected_branch') ?? '';
 
@@ -173,9 +176,6 @@ class AppStore extends ChangeNotifier {
   Future<void> _syncFromRemote() async {
     print('AppStore: 🔄 Starting background sync...');
     try {
-      await dotenv.load(fileName: ".env");
-      await FirestoreDb.init();
-      await GoogleDriveApi.init();
 
       final bList = await FirestoreDb.getAllBills();
       final cListRaw = await FirestoreDb.getAllCustomersRaw();
@@ -186,7 +186,13 @@ class AppStore extends ChangeNotifier {
       // Sort latest first
       bList.sort((a, b) => b.billDate.compareTo(a.billDate));
       _bills = bList;
-      _customers = cListRaw.map((r) => Customer.fromJson(r)).toList();
+
+      // Merge remote customers with any locally-written ones that haven't
+      // synced to the server yet (fire-and-forget writes still in-flight).
+      final remoteCustomers = cListRaw.map((r) => Customer.fromJson(r)).toList();
+      final remoteIds = remoteCustomers.map((c) => c.id).toSet();
+      final pendingLocal = _customers.where((c) => !remoteIds.contains(c.id)).toList();
+      _customers = [...pendingLocal, ...remoteCustomers];
       
       final fromBills = _bills.expand((b) => b.materials.map((m) => m.name)).toSet();
       _suggestions = {...sList, ...fromBills}.toList()..sort();
@@ -259,6 +265,54 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  Future<void> markPalagaiReturned(String billId, int index, DateTime returnDate) async {
+    final bill = _bills.firstWhere((b) => b.id == billId);
+    if (index >= 0 && index < bill.palagai.length && !bill.palagai[index].isReturned) {
+      bill.palagai[index] = bill.palagai[index].copyWith(
+        isReturned: true,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
+    }
+  }
+
+  Future<void> markMuttuReturned(String billId, int index, DateTime returnDate) async {
+    final bill = _bills.firstWhere((b) => b.id == billId);
+    if (index >= 0 && index < bill.muttu.length && !bill.muttu[index].isReturned) {
+      bill.muttu[index] = bill.muttu[index].copyWith(
+        isReturned: true,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
+    }
+  }
+
+  Future<void> markSideSheetReturned(String billId, int index, DateTime returnDate) async {
+    final bill = _bills.firstWhere((b) => b.id == billId);
+    if (index >= 0 && index < bill.sideSheets.length && !bill.sideSheets[index].isReturned) {
+      bill.sideSheets[index] = bill.sideSheets[index].copyWith(
+        isReturned: true,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
+    }
+  }
+
+  Future<void> markRoofMaterialReturned(String billId, int index, DateTime returnDate) async {
+    final bill = _bills.firstWhere((b) => b.id == billId);
+    if (index >= 0 && index < bill.roofItems.length && !bill.roofItems[index].isReturned) {
+      bill.roofItems[index] = bill.roofItems[index].copyWith(
+        isReturned: true,
+        returnDate: returnDate,
+      );
+      notifyListeners();
+      await FirestoreDb.insertOrUpdateBill(bill);
+    }
+  }
+
   Future<void> addBill(Bill bill) async {
     _bills.insert(0, bill);
     for (final m in bill.materials) {
@@ -271,6 +325,10 @@ class AppStore extends ChangeNotifier {
   Future<void> updateBill(Bill bill) async {
     final idx = _bills.indexWhere((b) => b.id == bill.id);
     if (idx != -1) {
+      // Defensive fallback: keep existing branch if an edit payload omits it.
+      if (bill.branch.trim().isEmpty) {
+        bill.branch = _bills[idx].branch;
+      }
       _bills[idx] = bill;
       for (final m in bill.materials) {
         await addSuggestion(m.name);
@@ -300,7 +358,10 @@ class AppStore extends ChangeNotifier {
   Future<void> addCustomer(Customer customer) async {
     _customers.insert(0, customer);
     notifyListeners();
-    await FirestoreDb.insertOrUpdateCustomer(customer);
+    // Write to local cache immediately — screen returns fast, restart is safe.
+    // Firestore write runs in background; offline persistence guarantees sync.
+    await _saveCustomersCache();
+    FirestoreDb.insertOrUpdateCustomer(customer);
   }
 
   Future<void> updateCustomer(Customer customer) async {
@@ -308,8 +369,14 @@ class AppStore extends ChangeNotifier {
     if (idx != -1) {
       _customers[idx] = customer;
       notifyListeners();
-      await FirestoreDb.insertOrUpdateCustomer(customer);
+      await _saveCustomersCache();
+      FirestoreDb.insertOrUpdateCustomer(customer);
     }
+  }
+
+  Future<void> _saveCustomersCache() async {
+    await LocalStorage.saveCache(
+        'customers', jsonEncode(_customers.map((e) => e.toJson()).toList()));
   }
 
   /// Encode bytes as base64 data URL and save directly to Firestore customer record.
