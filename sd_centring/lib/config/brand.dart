@@ -12,6 +12,9 @@ class Brand {
   static const dcPrefix = 'SD-';
   static const dcStartNumber = 1001;
 
+  /// Added to 10-digit numbers for WhatsApp links (91 = India).
+  static const whatsAppCountryCode = '91';
+
   /// Time zone used to schedule reminder notifications.
   static const timeZone = 'Asia/Kolkata';
 

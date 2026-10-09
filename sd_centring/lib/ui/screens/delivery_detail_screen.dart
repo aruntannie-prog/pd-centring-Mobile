@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/dates.dart';
 import '../../core/quantity.dart';
+import '../../domain/whatsapp.dart';
 import '../../models/rental.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
@@ -10,6 +11,7 @@ import '../widgets/rental_tile.dart';
 import 'customer_detail_screen.dart';
 import 'delivery_form_screen.dart';
 import 'record_return_sheet.dart';
+import 'whatsapp_sheet.dart';
 
 class DeliveryDetailScreen extends StatelessWidget {
   const DeliveryDetailScreen({super.key, required this.rentalId});
@@ -68,16 +70,23 @@ class DeliveryDetailScreen extends StatelessWidget {
       ),
       bottomNavigationBar: rental.isClosed
           ? null
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
+          : Align(
+              // Size to the button's height; only the width is capped.
+              heightFactor: 1,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: PageWidth.maxWidth),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                      ),
+                      onPressed: () => RecordReturnSheet.show(context, rental),
+                      icon: const Icon(Icons.assignment_return_outlined),
+                      label: const Text('Record return'),
+                    ),
                   ),
-                  onPressed: () => RecordReturnSheet.show(context, rental),
-                  icon: const Icon(Icons.assignment_return_outlined),
-                  label: const Text('Record return'),
                 ),
               ),
             ),
@@ -151,6 +160,7 @@ class DeliveryDetailScreen extends StatelessWidget {
                     : () => CustomerDetailScreen.open(context, customer.id),
               ),
             ),
+            if (!rental.isClosed) _WhatsAppAction(rental: rental),
 
             // ── Items ──────────────────────────────────────────────────────
             const SectionHeader('Material'),
@@ -405,6 +415,60 @@ class _ItemRow extends StatelessWidget {
             'Returned ${formatQty(returned)} of ${formatQty(item.qty)} ${item.unit}',
             style: theme.textTheme.bodySmall,
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Send WhatsApp reminder" under the customer card, with when it was last
+/// used so staff don't message the same customer twice by accident.
+class _WhatsAppAction extends StatelessWidget {
+  const _WhatsAppAction({required this.rental});
+
+  final Rental rental;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = context.read<AppState>();
+    final phone = app.customerById(rental.customerId)?.phone ?? '';
+    final number = whatsAppNumber(phone);
+    final last = rental.lastMessagedAt;
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF128C7E),
+              side: const BorderSide(color: Color(0xFF128C7E)),
+              minimumSize: const Size.fromHeight(44),
+            ),
+            onPressed: number == null
+                ? null
+                : () => WhatsAppSheet.show(context, rental, number),
+            icon: const Icon(Icons.chat),
+            label: const Text('Send WhatsApp reminder'),
+          ),
+          if (number == null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Add a valid mobile number to this customer to use WhatsApp.',
+                style: theme.textTheme.bodySmall,
+              ),
+            )
+          else if (last != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Last WhatsApp reminder: ${formatDay(last)}',
+                style: theme.textTheme.bodySmall,
+              ),
+            ),
         ],
       ),
     );

@@ -155,6 +155,9 @@ class AppState extends ChangeNotifier {
     );
   }
 
+  Future<void> markMessaged(Rental r) =>
+      saveRental(r.copyWith(lastMessagedAt: _clock()));
+
   // ── Reminders ──────────────────────────────────────────────────────────
 
   List<PlannedReminder> currentPlan() => planReminders(

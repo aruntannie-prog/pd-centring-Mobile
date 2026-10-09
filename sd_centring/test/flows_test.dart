@@ -133,6 +133,8 @@ void main() {
 
       expect(find.textContaining('Returned 15 of 40'), findsOneWidget);
       await scrollTo(tester, find.byTooltip('Undo this return'));
+      await tester.ensureVisible(find.byTooltip('Undo this return'));
+      await tester.pumpAndSettle();
       await tester.tap(find.byTooltip('Undo this return'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(FilledButton, 'Undo'));

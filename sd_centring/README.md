@@ -8,9 +8,11 @@ how much has come back, and when it is due back.
 It is a separate app with its own code, database and look. Nothing is shared
 with PD Centring.
 
-| Phone | Delivery | Desktop |
-|---|---|---|
-| ![Alerts](docs/screenshots/alerts-phone.png) | ![Delivery](docs/screenshots/delivery-phone.png) | ![Desktop](docs/screenshots/alerts-desktop.png) |
+| Alerts | Delivery | WhatsApp reminder | Desktop |
+|---|---|---|---|
+| ![Alerts](docs/screenshots/02-alerts.png) | ![Delivery](docs/screenshots/04-delivery-detail.png) | ![WhatsApp](docs/screenshots/07-whatsapp-reminder.png) | ![Desktop](docs/screenshots/21-desktop-alerts.png) |
+
+All 22 screens are in [`docs/screenshots/`](docs/screenshots).
 
 ## What it does
 
@@ -29,6 +31,12 @@ with PD Centring.
   Settings), on the expiry day, and the day after if material is still out.
   Each reminder fires at your chosen time. Tapping one opens that delivery.
   In the browser, use the Alerts tab instead.
+- **WhatsApp reminders to customers:** from a delivery, *Send WhatsApp
+  reminder* shows the message (DC, site, expiry date and the material still
+  out, with no prices), lets you edit it, and opens WhatsApp with it typed in.
+  You press Send in WhatsApp. The app records when the last reminder was
+  sent. This uses WhatsApp's free click-to-chat links, so it needs no API,
+  server or cost, and carries no risk of the number being banned.
 - **Cloud sync status:** a banner says when changes are waiting to upload, when
   the phone is offline, or when the database refuses access. A failed save is
   never silent.
@@ -78,6 +86,19 @@ flutter test      # unit + widget tests (expiry, reminders, returns, forms, layo
 
 CI (`.github/workflows/sd_centring.yml`) runs formatting, analysis, tests, a
 web build and an Android build on every push that touches `sd_centring/`.
+
+To regenerate the screenshots:
+`flutter build web -t tool/screenshots.dart --no-web-resources-cdn`, then open
+`index.html?s=<screen>` (screen names are listed in `tool/screenshots.dart`).
+
+### Automatic WhatsApp messages (not built yet)
+
+Sending without a person pressing Send needs the official **WhatsApp Business
+Cloud API** (Meta). It requires a verified business, approved message
+templates and a small server (for example Firebase Cloud Functions), and
+Meta charges per message. Free GitHub libraries that automate WhatsApp Web
+(`whatsapp-web.js`, `Baileys`) break WhatsApp's terms and can get the business
+number banned, so they are deliberately not used.
 
 ### Design decisions (lessons from the PD app)
 

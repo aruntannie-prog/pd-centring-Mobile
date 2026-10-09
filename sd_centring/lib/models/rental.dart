@@ -138,6 +138,9 @@ class Rental {
   final List<ReturnEntry> returns;
   final List<ExpiryChange> expiryHistory;
   final String notes;
+
+  /// When staff last opened a WhatsApp reminder for this delivery.
+  final DateTime? lastMessagedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -153,6 +156,7 @@ class Rental {
     this.returns = const [],
     this.expiryHistory = const [],
     this.notes = '',
+    this.lastMessagedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -189,6 +193,7 @@ class Rental {
     List<ReturnEntry>? returns,
     List<ExpiryChange>? expiryHistory,
     String? notes,
+    DateTime? lastMessagedAt,
     DateTime? updatedAt,
   }) => Rental(
     id: id,
@@ -202,6 +207,7 @@ class Rental {
     returns: returns ?? this.returns,
     expiryHistory: expiryHistory ?? this.expiryHistory,
     notes: notes ?? this.notes,
+    lastMessagedAt: lastMessagedAt ?? this.lastMessagedAt,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -220,6 +226,7 @@ class Rental {
     'expiryHistory': expiryHistory.map((e) => e.toMap()).toList(),
     'notes': notes,
     'closed': isClosed,
+    'lastMessagedAt': lastMessagedAt?.millisecondsSinceEpoch,
     'createdAt': createdAt.millisecondsSinceEpoch,
     'updatedAt': updatedAt.millisecondsSinceEpoch,
   };
@@ -256,6 +263,9 @@ class Rental {
       returns: list(m['returns'], ReturnEntry.tryFromMap),
       expiryHistory: list(m['expiryHistory'], ExpiryChange.tryFromMap),
       notes: str(m['notes']),
+      lastMessagedAt: m['lastMessagedAt'] is int
+          ? DateTime.fromMillisecondsSinceEpoch(m['lastMessagedAt'] as int)
+          : null,
       createdAt: millis(m['createdAt']),
       updatedAt: millis(m['updatedAt']),
     );

@@ -518,72 +518,95 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
 
   Widget _itemRow(int index) {
     final d = _items[index];
+    final name = TextFormField(
+      controller: d.name,
+      onChanged: (_) => _markDirty(),
+      textCapitalization: TextCapitalization.words,
+      decoration: InputDecoration(
+        labelText: 'Item',
+        suffixIcon: PopupMenuButton<String>(
+          tooltip: 'Pick material',
+          icon: const Icon(Icons.arrow_drop_down),
+          onSelected: (v) => setState(() {
+            d.name.text = v;
+            _dirty = true;
+          }),
+          itemBuilder: (_) => [
+            for (final m in defaultMaterials)
+              PopupMenuItem(value: m, child: Text(m)),
+          ],
+        ),
+      ),
+    );
+    final qty = TextFormField(
+      controller: d.qty,
+      onChanged: (_) => _markDirty(),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: const InputDecoration(labelText: 'Qty'),
+    );
+    final unit = DropdownButton<String>(
+      value: defaultUnits.contains(d.unit) ? d.unit : null,
+      hint: Text(d.unit),
+      underline: const SizedBox.shrink(),
+      items: [
+        for (final u in defaultUnits)
+          DropdownMenuItem(value: u, child: Text(u)),
+      ],
+      onChanged: (u) => setState(() {
+        if (u != null) d.unit = u;
+        _dirty = true;
+      }),
+    );
+    final remove = IconButton(
+      tooltip: 'Remove item',
+      icon: const Icon(Icons.remove_circle_outline),
+      onPressed: _items.length == 1
+          ? null
+          : () => setState(() {
+              _items.removeAt(index).dispose();
+              _dirty = true;
+            }),
+    );
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              flex: 5,
-              child: TextFormField(
-                controller: d.name,
-                onChanged: (_) => _markDirty(),
-                textCapitalization: TextCapitalization.words,
-                decoration: InputDecoration(
-                  labelText: 'Item',
-                  suffixIcon: PopupMenuButton<String>(
-                    tooltip: 'Pick material',
-                    icon: const Icon(Icons.arrow_drop_down),
-                    onSelected: (v) => setState(() {
-                      d.name.text = v;
-                      _dirty = true;
-                    }),
-                    itemBuilder: (_) => [
-                      for (final m in defaultMaterials)
-                        PopupMenuItem(value: m, child: Text(m)),
+        child: LayoutBuilder(
+          builder: (context, c) {
+            // Phones: item name gets its own line so it is never cut off.
+            if (c.maxWidth < 480) {
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: name),
+                      remove,
                     ],
                   ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 3,
-              child: TextFormField(
-                controller: d.qty,
-                onChanged: (_) => _markDirty(),
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(labelText: 'Qty'),
-              ),
-            ),
-            const SizedBox(width: 8),
-            DropdownButton<String>(
-              value: defaultUnits.contains(d.unit) ? d.unit : null,
-              hint: Text(d.unit),
-              underline: const SizedBox.shrink(),
-              items: [
-                for (final u in defaultUnits)
-                  DropdownMenuItem(value: u, child: Text(u)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(child: qty),
+                      const SizedBox(width: 12),
+                      unit,
+                      const SizedBox(width: 48),
+                    ],
+                  ),
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 5, child: name),
+                const SizedBox(width: 8),
+                Expanded(flex: 3, child: qty),
+                const SizedBox(width: 8),
+                unit,
+                remove,
               ],
-              onChanged: (u) => setState(() {
-                if (u != null) d.unit = u;
-                _dirty = true;
-              }),
-            ),
-            IconButton(
-              tooltip: 'Remove item',
-              icon: const Icon(Icons.remove_circle_outline),
-              onPressed: _items.length == 1
-                  ? null
-                  : () => setState(() {
-                      _items.removeAt(index).dispose();
-                      _dirty = true;
-                    }),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
