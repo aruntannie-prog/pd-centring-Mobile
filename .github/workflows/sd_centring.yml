@@ -1,0 +1,52 @@
+name: SD Centring CI
+
+# Checks the SD Centring app (sd_centring/) on every push and pull request
+# that touches it. Does not deploy anything.
+on:
+  push:
+    paths:
+      - 'sd_centring/**'
+      - '.github/workflows/sd_centring.yml'
+  pull_request:
+    paths:
+      - 'sd_centring/**'
+      - '.github/workflows/sd_centring.yml'
+
+defaults:
+  run:
+    working-directory: sd_centring
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Static analysis
+        run: flutter analyze
+      - name: Tests
+        run: flutter test
+      - name: Web build
+        run: flutter build web --release --no-web-resources-cdn
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Android build (checks manifest, desugaring, notifications setup)
+        run: flutter build apk --debug
