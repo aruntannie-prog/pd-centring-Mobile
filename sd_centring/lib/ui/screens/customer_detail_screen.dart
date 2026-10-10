@@ -161,11 +161,6 @@ class CustomerDetailScreen extends StatelessWidget {
                     _InfoLine(Icons.phone_forwarded_rounded, customer.altPhone),
                   if (customer.address.isNotEmpty)
                     _InfoLine(Icons.place_rounded, customer.address),
-                  if (customer.referredBy.isNotEmpty)
-                    _InfoLine(
-                      Icons.handshake_outlined,
-                      'Referred by ${customer.referredBy}',
-                    ),
                   if (customer.notes.isNotEmpty)
                     _InfoLine(Icons.notes_rounded, customer.notes),
                 ],

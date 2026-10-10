@@ -25,7 +25,7 @@ All 22 screens are in [`docs/screenshots/`](docs/screenshots).
   with a date and note. Any return can be undone. A delivery closes when
   everything is back.
 - **Extend expiry:** every change is kept in a history.
-- **Customers:** contact details, "referred by", a profile photo (camera or
+- **Customers:** contact details, a profile photo (camera or
   gallery) and ID / address proofs (Aadhaar, PAN, voter ID, utility bill…)
   as photos or PDFs up to 10 MB, plus the material they currently hold and
   their deliveries. Customers with deliveries cannot be deleted.

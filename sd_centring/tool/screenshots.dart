@@ -88,6 +88,23 @@ Future<Uint8List> _sampleCard() async {
   return data!.buffer.asUint8List();
 }
 
+/// A plain silhouette standing in for a customer photo.
+Future<Uint8List> _samplePortrait() async {
+  final rec = ui.PictureRecorder();
+  final c = Canvas(rec);
+  const w = 360.0, h = 460.0;
+  c.drawRect(
+    const Rect.fromLTWH(0, 0, w, h),
+    Paint()..color = const Color(0xFFD9E4EE),
+  );
+  final body = Paint()..color = const Color(0xFF6B7F94);
+  c.drawCircle(const Offset(w / 2, 180), 82, body);
+  c.drawOval(const Rect.fromLTWH(50, 300, 260, 260), body);
+  final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
+  final data = await img.toByteData(format: ui.ImageByteFormat.png);
+  return data!.buffer.asUint8List();
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final q = Uri.base.queryParameters;
@@ -125,10 +142,15 @@ void main() async {
       bytes: Uint8List.fromList([37, 80, 68, 70]),
       contentType: 'application/pdf',
     );
+    final face = await app.files.upload(
+      path: 'customers/demo-c1/photo.png',
+      bytes: await _samplePortrait(),
+      contentType: 'image/png',
+    );
     final c1 = demo.customers.first;
     await repo.saveCustomer(
       c1.copyWith(
-        referredBy: 'Lakshmi Constructions',
+        photoUrl: face,
         documents: [
           CustomerDoc(
             id: 'd1',

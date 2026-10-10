@@ -65,7 +65,6 @@ class Customer {
   final String phone;
   final String altPhone;
   final String address;
-  final String referredBy;
   final String notes;
 
   /// Storage URL of the profile photo, or empty.
@@ -79,7 +78,6 @@ class Customer {
     required this.phone,
     this.altPhone = '',
     this.address = '',
-    this.referredBy = '',
     this.notes = '',
     this.photoUrl = '',
     this.documents = const [],
@@ -91,7 +89,6 @@ class Customer {
     String? phone,
     String? altPhone,
     String? address,
-    String? referredBy,
     String? notes,
     String? photoUrl,
     List<CustomerDoc>? documents,
@@ -101,7 +98,6 @@ class Customer {
     phone: phone ?? this.phone,
     altPhone: altPhone ?? this.altPhone,
     address: address ?? this.address,
-    referredBy: referredBy ?? this.referredBy,
     notes: notes ?? this.notes,
     photoUrl: photoUrl ?? this.photoUrl,
     documents: documents ?? this.documents,
@@ -115,7 +111,6 @@ class Customer {
     'phone': phone,
     'altPhone': altPhone,
     'address': address,
-    'referredBy': referredBy,
     'notes': notes,
     'photoUrl': photoUrl,
     'documents': documents.map((d) => d.toMap()).toList(),
@@ -130,7 +125,6 @@ class Customer {
     phone: _str(m['phone']),
     altPhone: _str(m['altPhone']),
     address: _str(m['address']),
-    referredBy: _str(m['referredBy']),
     notes: _str(m['notes']),
     photoUrl: _str(m['photoUrl']),
     documents: m['documents'] is List

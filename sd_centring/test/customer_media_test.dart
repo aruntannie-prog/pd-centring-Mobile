@@ -93,7 +93,6 @@ void main() {
       id: 'c',
       name: 'Ravi',
       phone: '9123456780',
-      referredBy: 'Murugan',
       photoUrl: 'https://example.test/p.jpg',
       documents: [
         CustomerDoc(
@@ -109,8 +108,9 @@ void main() {
       createdAt: DateTime(2026),
     );
     final back = Customer.fromMap('c', c.toMap());
+    // SD keeps no referral details.
+    expect(c.toMap().containsKey('referredBy'), isFalse);
     expect(back.photoUrl, c.photoUrl);
-    expect(back.referredBy, 'Murugan');
     expect(back.documents.single.kind, 'Aadhaar');
     expect(back.documents.single.sizeBytes, 1234);
     // Broken entries are skipped rather than crashing the list.
@@ -135,6 +135,7 @@ void main() {
     final app = await pumpForm(tester, files: files);
 
     expect(find.text('Add photo'), findsOneWidget);
+    expect(find.textContaining('Referred'), findsNothing);
     await tester.tap(find.text('Add photo'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Choose from gallery'));
@@ -159,17 +160,12 @@ void main() {
       find.widgetWithText(TextFormField, 'Phone *'),
       '9000011111',
     );
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'Referred by'),
-      'Murugan',
-    );
     await tester.tap(find.text('SAVE'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 50));
 
     final saved = app.customers.single;
     expect(saved.photoUrl, startsWith('memory://'));
-    expect(saved.referredBy, 'Murugan');
     expect(saved.documents.map((d) => d.kind), ['Aadhaar', 'PAN']);
     expect(saved.documents.last.isPdf, isTrue);
     expect(files.count, 3);

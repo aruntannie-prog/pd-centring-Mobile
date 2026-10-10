@@ -94,9 +94,6 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   late final _address = TextEditingController(
     text: widget.existing?.address ?? '',
   );
-  late final _referredBy = TextEditingController(
-    text: widget.existing?.referredBy ?? '',
-  );
   late final _notes = TextEditingController(text: widget.existing?.notes ?? '');
 
   // Photo: a newly picked one, or the existing URL (unless removed).
@@ -117,7 +114,6 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     _phone,
     _altPhone,
     _address,
-    _referredBy,
     _notes,
   ];
 
@@ -363,7 +359,6 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             phone: phone,
             altPhone: normalizePhone(_altPhone.text),
             address: _address.text.trim(),
-            referredBy: _referredBy.text.trim(),
             notes: _notes.text.trim(),
             photoUrl: photoUrl,
             documents: docs,
@@ -374,7 +369,6 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             phone: phone,
             altPhone: normalizePhone(_altPhone.text),
             address: _address.text.trim(),
-            referredBy: _referredBy.text.trim(),
             notes: _notes.text.trim(),
             photoUrl: photoUrl,
             documents: docs,
@@ -469,33 +463,57 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                // ── Photo ───────────────────────────────────────────────
-                Center(child: _photoPicker()),
-                const SizedBox(height: 16),
-
+                // Who: photo beside the name and number.
                 FormSection(
                   icon: Icons.person_rounded,
-                  title: 'Contact',
+                  title: 'Customer',
                   children: [
-                    TextFormField(
-                      controller: _name,
-                      decoration: const InputDecoration(
-                        labelText: 'Name *',
-                        prefixIcon: Icon(Icons.badge_rounded),
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                      validator: (v) =>
-                          (v?.trim().isEmpty ?? true) ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
-                      controller: _phone,
-                      decoration: const InputDecoration(
-                        labelText: 'Phone *',
-                        prefixIcon: Icon(Icons.call_rounded),
-                      ),
-                      keyboardType: TextInputType.phone,
-                      validator: (v) => _validatePhone(v, required: true),
+                    LayoutBuilder(
+                      builder: (context, box) {
+                        final fields = Column(
+                          children: [
+                            TextFormField(
+                              controller: _name,
+                              decoration: const InputDecoration(
+                                labelText: 'Name *',
+                              ),
+                              textCapitalization: TextCapitalization.words,
+                              validator: (v) => (v?.trim().isEmpty ?? true)
+                                  ? 'Required'
+                                  : null,
+                            ),
+                            const SizedBox(height: 10),
+                            TextFormField(
+                              controller: _phone,
+                              decoration: const InputDecoration(
+                                labelText: 'Phone *',
+                              ),
+                              keyboardType: TextInputType.phone,
+                              validator: (v) =>
+                                  _validatePhone(v, required: true),
+                            ),
+                          ],
+                        );
+                        // Very narrow screens: photo above the fields.
+                        if (box.maxWidth < 240) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _photoPicker(),
+                              const SizedBox(height: 12),
+                              fields,
+                            ],
+                          );
+                        }
+                        return Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _photoPicker(),
+                            const SizedBox(width: 12),
+                            Expanded(child: fields),
+                          ],
+                        );
+                      },
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -506,58 +524,6 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                       ),
                       keyboardType: TextInputType.phone,
                       validator: (v) => _validatePhone(v, required: false),
-                    ),
-                  ],
-                ),
-
-                // ── Documents ───────────────────────────────────────────
-                FormSection(
-                  icon: Icons.badge_outlined,
-                  title: 'ID & address proof',
-                  trailing: Text(
-                    _docs.isEmpty ? 'None yet' : '${_docs.length}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  children: [
-                    for (var i = 0; i < _docs.length; i++) ...[
-                      if (i > 0) const Divider(height: 1),
-                      _docRow(_docs[i]),
-                    ],
-                    if (_docs.isEmpty)
-                      Text(
-                        'Aadhaar, PAN, voter ID or a utility bill. '
-                        'Photo or PDF, up to 10 MB.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _saving
-                                ? null
-                                : () => _addDocument(camera: true, file: false),
-                            icon: const Icon(
-                              Icons.document_scanner_rounded,
-                              size: 18,
-                            ),
-                            label: const Text('Take photo'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _saving
-                                ? null
-                                : () => _addDocument(camera: false, file: true),
-                            icon: const Icon(
-                              Icons.upload_file_rounded,
-                              size: 18,
-                            ),
-                            label: const Text('Upload file'),
-                          ),
-                        ),
-                      ],
                     ),
                   ],
                 ),
@@ -575,20 +541,76 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
-                      controller: _referredBy,
-                      decoration: const InputDecoration(
-                        labelText: 'Referred by',
-                        prefixIcon: Icon(Icons.handshake_outlined),
-                      ),
-                      textCapitalization: TextCapitalization.words,
-                    ),
-                    const SizedBox(height: 10),
-                    TextFormField(
                       controller: _notes,
                       decoration: const InputDecoration(labelText: 'Notes'),
                       maxLines: 3,
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
+                    ),
+                  ],
+                ),
+
+                // ── Documents ───────────────────────────────────────────
+                FormSection(
+                  icon: Icons.badge_outlined,
+                  title: 'ID & address proof',
+                  trailing: Text(
+                    _docs.isEmpty ? 'Optional' : '${_docs.length}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  children: [
+                    for (var i = 0; i < _docs.length; i++) ...[
+                      if (i > 0) const Divider(height: 1),
+                      _docRow(_docs[i]),
+                    ],
+                    if (_docs.isEmpty)
+                      Text(
+                        'Aadhaar, PAN, voter ID or a utility bill. '
+                        'Photo or PDF, up to 10 MB.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, box) {
+                        // Short labels so they stay on one line on small
+                        // phones.
+                        final narrow = box.maxWidth < 300;
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _addDocument(
+                                        camera: true,
+                                        file: false,
+                                      ),
+                                icon: const Icon(
+                                  Icons.document_scanner_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(narrow ? 'Camera' : 'Take photo'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _addDocument(
+                                        camera: false,
+                                        file: true,
+                                      ),
+                                icon: const Icon(
+                                  Icons.upload_file_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(narrow ? 'File' : 'Upload file'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -604,67 +626,78 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     );
   }
 
+  /// Portrait photo tile, like a passport photo. Tap to take, pick, or
+  /// remove the photo.
   Widget _photoPicker() {
     final sd = context.sd;
+    final hasPhoto = _newPhoto != null || _existingPhoto.isNotEmpty;
     Widget image;
     if (_newPhoto != null) {
       image = Image.memory(_newPhoto!.bytes, fit: BoxFit.cover);
     } else if (_existingPhoto.isNotEmpty) {
       image = StoredImage(_existingPhoto);
     } else {
-      image = Container(
-        color: sd.field,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.add_a_photo_rounded, color: sd.muted, size: 28),
-            const SizedBox(height: 4),
-            Text(
-              'Add photo',
-              style: TextStyle(
-                color: sd.muted,
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-              ),
+      image = Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.add_a_photo_rounded, color: SdColors.ember, size: 26),
+          const SizedBox(height: 6),
+          Text(
+            'Add photo',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
             ),
-          ],
-        ),
+          ),
+        ],
       );
     }
     return Semantics(
       button: true,
       label: 'Customer photo',
-      child: GestureDetector(
-        onTap: _saving ? null : _photoOptions,
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(32),
-              child: SizedBox(width: 104, height: 104, child: image),
-            ),
-            Positioned(
-              right: -4,
-              bottom: -4,
-              child: Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: SdColors.ember,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    width: 3,
+      child: Material(
+        color: sd.field,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: hasPhoto ? Colors.transparent : sd.line,
+            width: 1.5,
+          ),
+        ),
+        child: InkWell(
+          onTap: _saving ? null : _photoOptions,
+          child: SizedBox(
+            width: 88,
+            height: 114,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                image,
+                if (hasPhoto)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      color: Colors.black.withValues(alpha: 0.55),
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: const Text(
+                        'Change',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-                child: const Icon(
-                  Icons.photo_camera_rounded,
-                  size: 16,
-                  color: Colors.white,
-                ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
