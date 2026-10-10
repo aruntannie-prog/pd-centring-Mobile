@@ -10,6 +10,8 @@ import '../../models/customer.dart';
 import '../../models/rental.dart';
 import '../../state/app_state.dart';
 import '../widgets/rental_tile.dart';
+import '../theme.dart';
+import '../widgets/form_section.dart';
 import 'customer_form_screen.dart';
 import 'customer_picker.dart';
 
@@ -340,6 +342,7 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
+          leading: const CloseButton(),
           title: Text(
             _editing ? 'Edit ${widget.existing!.dcNumber}' : 'New delivery',
           ),
@@ -348,165 +351,224 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
               onPressed: _saving ? null : _save,
               child: const Text(
                 'SAVE',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
+            const SizedBox(width: 8),
           ],
+        ),
+        bottomNavigationBar: SaveBar(
+          label: _saving ? 'Saving…' : 'Save delivery',
+          onPressed: _saving ? null : _save,
         ),
         body: PageWidth(
           child: Form(
             key: _formKey,
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 48),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
                 // ── Customer ─────────────────────────────────────────────
-                _Label('Customer'),
-                Card(
-                  child: ListTile(
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.person_outline),
-                    ),
-                    title: Text(_customer?.name ?? 'Choose customer'),
-                    subtitle: _customer == null
-                        ? (_customerError == null
-                              ? null
-                              : Text(
-                                  _customerError!,
-                                  style: TextStyle(
-                                    color: theme.colorScheme.error,
-                                  ),
-                                ))
-                        : Text(_customer!.phone),
-                    trailing: const Icon(Icons.arrow_drop_down),
-                    onTap: _chooseCustomer,
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
+                FormSection(
+                  icon: Icons.person_rounded,
+                  title: 'Customer',
+                  trailing: TextButton.icon(
                     onPressed: _newCustomer,
-                    icon: const Icon(Icons.person_add_alt),
+                    icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
                     label: const Text('New customer'),
                   ),
-                ),
-                const SizedBox(height: 8),
-                Row(
                   children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _dc,
-                        decoration: const InputDecoration(
-                          labelText: 'DC number',
+                    InkWell(
+                      onTap: _chooseCustomer,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: context.sd.field,
+                          borderRadius: BorderRadius.circular(16),
+                          border: _customerError == null
+                              ? null
+                              : Border.all(color: SdColors.expired, width: 1.2),
                         ),
-                        textCapitalization: TextCapitalization.characters,
-                        validator: (v) {
-                          final s = v?.trim() ?? '';
-                          if (s.isEmpty) return 'Required';
-                          if (isDcNumberTaken(
-                            app.rentals,
-                            s,
-                            exceptId: widget.existing?.id,
-                          )) {
-                            return 'Already used';
-                          }
-                          return null;
-                        },
+                        child: Row(
+                          children: [
+                            _customer == null
+                                ? Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: context.sd.card,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
+                                    child: Icon(
+                                      Icons.person_search_rounded,
+                                      color: context.sd.muted,
+                                    ),
+                                  )
+                                : InitialsAvatar(_customer!.name),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _customer?.name ?? 'Choose customer',
+                                    style: theme.textTheme.titleSmall?.copyWith(
+                                      color: _customer == null
+                                          ? context.sd.muted
+                                          : null,
+                                    ),
+                                  ),
+                                  if (_customer != null)
+                                    Text(
+                                      _customer!.phone,
+                                      style: theme.textTheme.bodySmall,
+                                    )
+                                  else if (_customerError != null)
+                                    Text(
+                                      _customerError!,
+                                      style: const TextStyle(
+                                        color: SdColors.expired,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Icons.expand_more_rounded,
+                              color: context.sd.muted,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _site,
-                        decoration: const InputDecoration(
-                          labelText: 'Site (optional)',
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _dc,
+                            decoration: const InputDecoration(
+                              labelText: 'DC number',
+                              prefixIcon: Icon(Icons.tag_rounded),
+                            ),
+                            textCapitalization: TextCapitalization.characters,
+                            validator: (v) {
+                              final s = v?.trim() ?? '';
+                              if (s.isEmpty) return 'Required';
+                              if (isDcNumberTaken(
+                                app.rentals,
+                                s,
+                                exceptId: widget.existing?.id,
+                              )) {
+                                return 'Already used';
+                              }
+                              return null;
+                            },
+                          ),
                         ),
-                        textCapitalization: TextCapitalization.words,
-                      ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _site,
+                            decoration: const InputDecoration(
+                              labelText: 'Site (optional)',
+                              prefixIcon: Icon(Icons.place_rounded),
+                            ),
+                            textCapitalization: TextCapitalization.words,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
 
                 // ── Dates ────────────────────────────────────────────────
-                const SizedBox(height: 20),
-                _Label('Rental period'),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _DateField(
-                        label: 'Delivered on',
-                        date: _issuedOn,
-                        onTap: _pickIssued,
-                      ),
+                FormSection(
+                  icon: Icons.event_rounded,
+                  title: 'Rental period',
+                  trailing: Text(
+                    '$length day${length == 1 ? '' : 's'}',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: SdColors.ember,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _DateField(
-                        label: 'Expires on',
-                        date: _expiresOn,
-                        onTap: _pickExpiry,
-                        emphasise: true,
-                      ),
+                  ),
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DateField(
+                            label: 'Delivered on',
+                            date: formatDay(_issuedOn),
+                            onTap: _pickIssued,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: DateField(
+                            label: 'Expires on',
+                            date: formatDay(_expiresOn),
+                            onTap: _pickExpiry,
+                            emphasise: true,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final d in _quickDays)
+                          ChoiceChip(
+                            label: Text('$d days'),
+                            selected: length == d,
+                            onSelected: (_) => setState(() {
+                              _expiresOn = addDays(_issuedOn, d);
+                              _dirty = true;
+                            }),
+                          ),
+                      ],
                     ),
                   ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 4,
-                  children: [
-                    for (final d in _quickDays)
-                      ChoiceChip(
-                        label: Text('$d days'),
-                        selected: length == d,
-                        onSelected: (_) => setState(() {
-                          _expiresOn = addDays(_issuedOn, d);
-                          _dirty = true;
-                        }),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Rental length: $length day${length == 1 ? '' : 's'}',
-                  style: theme.textTheme.bodySmall,
                 ),
 
                 // ── Items ────────────────────────────────────────────────
-                const SizedBox(height: 20),
-                _Label('Material'),
-                for (var i = 0; i < _items.length; i++) _itemRow(i),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: () => setState(() {
-                      _items.add(_ItemDraft(id: _uuid.v4()));
-                      _dirty = true;
-                    }),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Add item'),
+                FormSection(
+                  icon: Icons.inventory_2_rounded,
+                  title: 'Material',
+                  trailing: Text(
+                    '${_items.length} item${_items.length == 1 ? '' : 's'}',
+                    style: theme.textTheme.bodySmall,
                   ),
+                  children: [
+                    for (var i = 0; i < _items.length; i++) _itemRow(i),
+                    OutlinedButton.icon(
+                      onPressed: () => setState(() {
+                        _items.add(_ItemDraft(id: _uuid.v4()));
+                        _dirty = true;
+                      }),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add item'),
+                    ),
+                  ],
                 ),
 
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: _notes,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (optional)',
-                  ),
-                  maxLines: 3,
-                  minLines: 1,
-                  textCapitalization: TextCapitalization.sentences,
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  onPressed: _saving ? null : _save,
-                  child: Text(_saving ? 'Saving…' : 'Save delivery'),
+                FormSection(
+                  icon: Icons.notes_rounded,
+                  title: 'Notes',
+                  children: [
+                    TextFormField(
+                      controller: _notes,
+                      decoration: const InputDecoration(
+                        labelText: 'Notes (optional)',
+                      ),
+                      maxLines: 3,
+                      minLines: 1,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -568,7 +630,12 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
             }),
     );
 
-    return Card(
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: context.sd.line),
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
         child: LayoutBuilder(
@@ -607,60 +674,6 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
               ],
             );
           },
-        ),
-      ),
-    );
-  }
-}
-
-class _Label extends StatelessWidget {
-  const _Label(this.text);
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      text.toUpperCase(),
-      style: Theme.of(context).textTheme.labelMedium
-          ?.copyWith(fontWeight: FontWeight.w800, letterSpacing: 1.1),
-    ),
-  );
-}
-
-class _DateField extends StatelessWidget {
-  const _DateField({
-    required this.label,
-    required this.date,
-    required this.onTap,
-    this.emphasise = false,
-  });
-
-  final String label;
-  final DateTime date;
-  final VoidCallback onTap;
-  final bool emphasise;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(4),
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: label,
-          suffixIcon: const Icon(Icons.calendar_month_outlined),
-        ),
-        child: Text(
-          formatDay(date),
-          style: emphasise
-              ? TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.primary,
-                )
-              : null,
         ),
       ),
     );

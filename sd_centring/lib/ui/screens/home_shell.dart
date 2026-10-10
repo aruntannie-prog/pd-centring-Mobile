@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../domain/expiry.dart';
 import '../../state/app_state.dart';
+import '../theme.dart';
 import 'alerts_screen.dart';
 import 'customers_screen.dart';
 import 'deliveries_screen.dart';
@@ -26,10 +27,10 @@ class _HomeShellState extends State<HomeShell> {
   final _deliveryFilter = ValueNotifier<DeliveryFilter>(DeliveryFilter.open);
 
   static const _destinations = [
-    (Icons.notifications_active_outlined, Icons.notifications_active, 'Alerts'),
-    (Icons.local_shipping_outlined, Icons.local_shipping, 'Deliveries'),
-    (Icons.people_alt_outlined, Icons.people_alt, 'Customers'),
-    (Icons.tune_outlined, Icons.tune, 'Settings'),
+    (Icons.notifications_none_rounded, Icons.notifications_rounded, 'Alerts'),
+    (Icons.local_shipping_outlined, Icons.local_shipping_rounded, 'Deliveries'),
+    (Icons.people_outline_rounded, Icons.people_rounded, 'Customers'),
+    (Icons.tune_rounded, Icons.tune_rounded, 'Settings'),
   ];
 
   @override
@@ -70,7 +71,7 @@ class _HomeShellState extends State<HomeShell> {
         ? FloatingActionButton.extended(
             heroTag: 'new-delivery',
             onPressed: () => DeliveryFormScreen.open(context),
-            icon: const Icon(Icons.add),
+            icon: const Icon(Icons.add_rounded),
             label: const Text('New delivery'),
           )
         : null;
@@ -86,6 +87,21 @@ class _HomeShellState extends State<HomeShell> {
             body: Row(
               children: [
                 NavigationRail(
+                  leading: Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 20),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: SdColors.ember,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.construction_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
                   selectedIndex: _index,
                   onDestinationSelected: (i) => setState(() => _index = i),
                   labelType: NavigationRailLabelType.all,
@@ -98,7 +114,7 @@ class _HomeShellState extends State<HomeShell> {
                       ),
                   ],
                 ),
-                const VerticalDivider(width: 1),
+                VerticalDivider(width: 1, color: context.sd.line),
                 Expanded(child: body),
               ],
             ),
@@ -108,17 +124,22 @@ class _HomeShellState extends State<HomeShell> {
         return Scaffold(
           body: body,
           floatingActionButton: fab,
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: [
-              for (var i = 0; i < _destinations.length; i++)
-                NavigationDestination(
-                  icon: icon(i, selected: false),
-                  selectedIcon: icon(i, selected: true),
-                  label: _destinations[i].$3,
-                ),
-            ],
+          bottomNavigationBar: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: context.sd.line)),
+            ),
+            child: NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              destinations: [
+                for (var i = 0; i < _destinations.length; i++)
+                  NavigationDestination(
+                    icon: icon(i, selected: false),
+                    selectedIcon: icon(i, selected: true),
+                    label: _destinations[i].$3,
+                  ),
+              ],
+            ),
           ),
         );
       },

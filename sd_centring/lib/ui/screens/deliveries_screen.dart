@@ -5,6 +5,7 @@ import '../../domain/expiry.dart';
 import '../../models/customer.dart';
 import '../../models/rental.dart';
 import '../../state/app_state.dart';
+import '../theme.dart';
 import '../widgets/rental_tile.dart';
 
 enum DeliveryFilter {
@@ -62,101 +63,125 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
+    final theme = Theme.of(context);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Deliveries'),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(64),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: TextField(
-              controller: _search,
-              onChanged: (_) => setState(() {}),
-              style: const TextStyle(color: Colors.black87),
-              decoration: InputDecoration(
-                hintText: 'Search DC no., customer, site, phone, item',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide.none,
-                ),
-                suffixIcon: _search.text.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Clear',
-                        icon: const Icon(Icons.close),
-                        onPressed: () => setState(_search.clear),
-                      ),
-              ),
-            ),
-          ),
-        ),
-      ),
-      body: PageWidth(
-        child: ValueListenableBuilder<DeliveryFilter>(
-          valueListenable: widget.filter,
-          builder: (context, filter, _) {
-            final q = _search.text.trim().toLowerCase();
-            final list = app.rentals
-                .where(
-                  (r) =>
-                      filter.matches(app.expiry(r).status) &&
-                      _matchesQuery(app, r, q),
-                )
-                .toList();
-            if (filter == DeliveryFilter.returned) {
-              list.sort((a, b) => b.expiresOn.compareTo(a.expiresOn));
-            }
+      body: SafeArea(
+        bottom: false,
+        child: PageWidth(
+          child: ValueListenableBuilder<DeliveryFilter>(
+            valueListenable: widget.filter,
+            builder: (context, filter, _) {
+              final q = _search.text.trim().toLowerCase();
+              final matching = app.rentals
+                  .where((r) => _matchesQuery(app, r, q))
+                  .toList();
+              int countFor(DeliveryFilter f) =>
+                  matching.where((r) => f.matches(app.expiry(r).status)).length;
+              final list = matching
+                  .where((r) => filter.matches(app.expiry(r).status))
+                  .toList();
+              if (filter == DeliveryFilter.returned) {
+                list.sort((a, b) => b.expiresOn.compareTo(a.expiresOn));
+              }
 
-            return Column(
-              children: [
-                SizedBox(
-                  height: 52,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                    child: Text(
+                      'Deliveries',
+                      style: theme.textTheme.headlineMedium,
                     ),
-                    children: [
-                      for (final f in DeliveryFilter.values)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(f.label),
-                            selected: f == filter,
-                            onSelected: (_) => widget.filter.value = f,
-                          ),
-                        ),
-                    ],
                   ),
-                ),
-                Expanded(
-                  child: !app.loaded
-                      ? const Center(child: CircularProgressIndicator())
-                      : list.isEmpty
-                      ? EmptyState(
-                          icon: Icons.inbox_outlined,
-                          title: q.isEmpty
-                              ? 'No deliveries here'
-                              : 'No matches',
-                          message: q.isEmpty
-                              ? 'Tap “New delivery” to add one.'
-                              : null,
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-                          itemCount: list.length,
-                          separatorBuilder: (_, _) => const SizedBox(height: 8),
-                          itemBuilder: (_, i) => RentalTile(list[i]),
-                        ),
-                ),
-              ],
-            );
-          },
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                    child: Text(
+                      '${countFor(DeliveryFilter.open)} out on rent · '
+                      '${countFor(DeliveryFilter.expired)} expired',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 13.5,
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: TextField(
+                      controller: _search,
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        hintText: 'Search DC no., customer, site, phone, item',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        fillColor: context.sd.card,
+                        suffixIcon: _search.text.isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Clear',
+                                icon: const Icon(Icons.close_rounded),
+                                onPressed: () => setState(_search.clear),
+                              ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    height: 60,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      children: [
+                        for (final f in DeliveryFilter.values)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              selected: f == filter,
+                              onSelected: (_) => widget.filter.value = f,
+                              label: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(f.label),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    '${countFor(f)}',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      color: f == filter
+                                          ? Colors.white70
+                                          : context.sd.muted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: !app.loaded
+                        ? const Center(child: CircularProgressIndicator())
+                        : list.isEmpty
+                        ? EmptyState(
+                            icon: Icons.inbox_rounded,
+                            title: q.isEmpty
+                                ? 'No deliveries here'
+                                : 'No matches',
+                            message: q.isEmpty
+                                ? 'Tap “New delivery” to add one.'
+                                : null,
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 6, 16, 110),
+                            itemCount: list.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (_, i) => RentalTile(list[i]),
+                          ),
+                  ),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

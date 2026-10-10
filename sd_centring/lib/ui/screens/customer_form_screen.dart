@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../models/customer.dart';
 import '../../state/app_state.dart';
+import '../widgets/form_section.dart';
 import '../widgets/rental_tile.dart';
 
 /// Add or edit a customer. Pops with the saved [Customer].
@@ -163,6 +164,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       },
       child: Scaffold(
         appBar: AppBar(
+          leading: const CloseButton(),
           title: Text(
             widget.existing == null ? 'New customer' : 'Edit customer',
           ),
@@ -171,69 +173,78 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
               onPressed: _saving ? null : _save,
               child: const Text(
                 'SAVE',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                ),
+                style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
+            const SizedBox(width: 8),
           ],
+        ),
+        bottomNavigationBar: SaveBar(
+          label: _saving ? 'Saving…' : 'Save customer',
+          onPressed: _saving ? null : _save,
         ),
         body: PageWidth(
           child: Form(
             key: _formKey,
             child: ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
-                TextFormField(
-                  controller: _name,
-                  decoration: const InputDecoration(labelText: 'Name *'),
-                  textCapitalization: TextCapitalization.words,
-                  validator: (v) =>
-                      (v?.trim().isEmpty ?? true) ? 'Required' : null,
+                FormSection(
+                  icon: Icons.person_rounded,
+                  title: 'Contact',
+                  children: [
+                    TextFormField(
+                      controller: _name,
+                      decoration: const InputDecoration(
+                        labelText: 'Name *',
+                        prefixIcon: Icon(Icons.badge_rounded),
+                      ),
+                      textCapitalization: TextCapitalization.words,
+                      validator: (v) =>
+                          (v?.trim().isEmpty ?? true) ? 'Required' : null,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone *',
+                        prefixIcon: Icon(Icons.call_rounded),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) => _validatePhone(v, required: true),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _altPhone,
+                      decoration: const InputDecoration(
+                        labelText: 'Alternate phone',
+                        prefixIcon: Icon(Icons.phone_forwarded_rounded),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      validator: (v) => _validatePhone(v, required: false),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone *',
-                    prefixIcon: Icon(Icons.phone),
-                  ),
-                  keyboardType: TextInputType.phone,
-                  validator: (v) => _validatePhone(v, required: true),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _altPhone,
-                  decoration: const InputDecoration(
-                    labelText: 'Alternate phone',
-                  ),
-                  keyboardType: TextInputType.phone,
-                  validator: (v) => _validatePhone(v, required: false),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _address,
-                  decoration: const InputDecoration(labelText: 'Address'),
-                  maxLines: 3,
-                  minLines: 1,
-                  textCapitalization: TextCapitalization.words,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _notes,
-                  decoration: const InputDecoration(labelText: 'Notes'),
-                  maxLines: 3,
-                  minLines: 1,
-                  textCapitalization: TextCapitalization.sentences,
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(48),
-                  ),
-                  onPressed: _saving ? null : _save,
-                  child: Text(_saving ? 'Saving…' : 'Save customer'),
+                FormSection(
+                  icon: Icons.place_rounded,
+                  title: 'Address & notes',
+                  children: [
+                    TextFormField(
+                      controller: _address,
+                      decoration: const InputDecoration(labelText: 'Address'),
+                      maxLines: 3,
+                      minLines: 1,
+                      textCapitalization: TextCapitalization.words,
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _notes,
+                      decoration: const InputDecoration(labelText: 'Notes'),
+                      maxLines: 3,
+                      minLines: 1,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                  ],
                 ),
               ],
             ),

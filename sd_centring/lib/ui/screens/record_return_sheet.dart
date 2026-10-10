@@ -6,6 +6,8 @@ import '../../core/dates.dart';
 import '../../core/quantity.dart';
 import '../../models/rental.dart';
 import '../../state/app_state.dart';
+import '../widgets/form_section.dart';
+import '../theme.dart';
 
 /// Bottom sheet to record material coming back. Supports partial returns
 /// (e.g. 15 of 40 props) across several items in one go.
@@ -110,26 +112,49 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           children: [
-            Text(
-              'Record return · ${widget.rental.dcNumber}',
-              style: theme.textTheme.titleLarge,
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  decoration: BoxDecoration(
+                    color: SdColors.active.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(13),
+                  ),
+                  child: const Icon(
+                    Icons.assignment_return_rounded,
+                    color: SdColors.active,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Record return', style: theme.textTheme.titleLarge),
+                      Text(
+                        widget.rental.dcNumber,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
             Text(
               'Leave a quantity empty if that item did not come back.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
             for (final item in _items) _qtyRow(item),
-            const SizedBox(height: 8),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.event),
-              title: const Text('Return date'),
-              subtitle: Text(formatDay(_date)),
-              trailing: const Icon(Icons.edit_calendar_outlined),
+            const SizedBox(height: 4),
+            DateField(
+              label: 'Return date',
+              date: formatDay(_date),
               onTap: _pickDate,
             ),
+            const SizedBox(height: 12),
             TextField(
               controller: _note,
               decoration: const InputDecoration(labelText: 'Note (optional)'),
@@ -138,7 +163,7 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
             const SizedBox(height: 20),
             FilledButton(
               style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+                minimumSize: const Size.fromHeight(54),
               ),
               onPressed: _saving ? null : _save,
               child: Text(_saving ? 'Saving…' : 'Save return'),
@@ -152,25 +177,29 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
   Widget _qtyRow(RentalItem item) {
     final left = widget.rental.outstandingQty(item);
     final ctrl = _qty[item.id]!;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+      decoration: BoxDecoration(
+        border: Border.all(color: context.sd.line),
+        borderRadius: BorderRadius.circular(18),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
             flex: 3,
             child: Padding(
-              padding: const EdgeInsets.only(top: 10),
+              padding: const EdgeInsets.only(top: 6),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    item.name,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
+                  Text(item.name, style: theme.textTheme.titleSmall),
+                  const SizedBox(height: 2),
                   Text(
                     '${formatQty(left)} ${item.unit} out',
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: theme.textTheme.bodySmall,
                   ),
                 ],
               ),
@@ -196,7 +225,7 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
               },
             ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 2),
           TextButton(
             onPressed: () => setState(() => ctrl.text = formatQty(left)),
             child: const Text('All'),

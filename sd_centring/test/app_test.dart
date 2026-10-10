@@ -63,13 +63,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Demo mode'), findsOneWidget);
-    expect(find.textContaining('EXPIRED — COLLECT MATERIAL'), findsOneWidget);
+    expect(find.textContaining('Expired — collect material'), findsOneWidget);
     expect(find.text('SD-1001'), findsOneWidget);
 
     await tester.tap(find.text('SD-1001'));
     await tester.pumpAndSettle();
     expect(find.text('Record return'), findsOneWidget);
     expect(find.text('4 days overdue'), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.textContaining('Returned 15 of 40'),
+      150,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.textContaining('Returned 15 of 40'), findsOneWidget);
 
     await tester.tap(find.text('Record return'));
@@ -77,6 +82,11 @@ void main() {
     await tester.tap(find.text('All').first);
     await tester.tap(find.text('Save return'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.textContaining('Returned 24 of 24'),
+      150,
+      scrollable: find.byType(Scrollable).last,
+    );
     expect(find.textContaining('Returned 24 of 24'), findsOneWidget);
 
     // Navigate between tabs.

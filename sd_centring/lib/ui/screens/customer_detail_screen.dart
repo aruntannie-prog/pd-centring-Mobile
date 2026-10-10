@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'delivery_detail_screen.dart' show normalizeDigits;
+import '../../domain/whatsapp.dart';
+
+import 'package:url_launcher/url_launcher.dart';
+
 import '../../core/quantity.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
@@ -28,7 +33,7 @@ class CustomerDetailScreen extends StatelessWidget {
       return Scaffold(
         appBar: AppBar(title: const Text('Customer')),
         body: const EmptyState(
-          icon: Icons.search_off,
+          icon: Icons.search_off_rounded,
           title: 'Customer not found',
         ),
       );
@@ -53,7 +58,7 @@ class CustomerDetailScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(customer.name),
+        title: const Text('Customer'),
         actions: [
           IconButton(
             tooltip: 'Edit',
@@ -104,72 +109,166 @@ class CustomerDetailScreen extends StatelessWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        heroTag: 'customer-new-delivery',
-        onPressed: () =>
-            DeliveryFormScreen.open(context, customerId: customer.id),
-        icon: const Icon(Icons.add),
-        label: const Text('New delivery'),
-      ),
       body: PageWidth(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _InfoLine(Icons.phone, customer.phone),
-                    if (customer.altPhone.isNotEmpty)
-                      _InfoLine(Icons.phone_forwarded, customer.altPhone),
-                    if (customer.address.isNotEmpty)
-                      _InfoLine(Icons.place_outlined, customer.address),
-                    if (customer.notes.isNotEmpty)
-                      _InfoLine(Icons.notes, customer.notes),
-                  ],
-                ),
+            SoftCard(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      InitialsAvatar(customer.name, size: 60),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              customer.name,
+                              style: theme.textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${open.length} open · ${closed.length} returned',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _InfoLine(Icons.call_rounded, customer.phone),
+                  if (customer.altPhone.isNotEmpty)
+                    _InfoLine(Icons.phone_forwarded_rounded, customer.altPhone),
+                  if (customer.address.isNotEmpty)
+                    _InfoLine(Icons.place_rounded, customer.address),
+                  if (customer.notes.isNotEmpty)
+                    _InfoLine(Icons.notes_rounded, customer.notes),
+                ],
               ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: QuickAction(
+                    icon: Icons.add_box_rounded,
+                    label: 'New delivery',
+                    color: SdColors.ember,
+                    onTap: () => DeliveryFormScreen.open(
+                      context,
+                      customerId: customer.id,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: QuickAction(
+                    icon: Icons.call_rounded,
+                    label: 'Call',
+                    color: const Color(0xFF2F6FED),
+                    onTap: customer.phone.trim().isEmpty
+                        ? null
+                        : () => _open(
+                            context,
+                            Uri(
+                              scheme: 'tel',
+                              path: normalizeDigits(customer.phone),
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: QuickAction(
+                    icon: Icons.chat_rounded,
+                    label: 'WhatsApp',
+                    color: SdColors.whatsApp,
+                    onTap: whatsAppNumber(customer.phone) == null
+                        ? null
+                        : () => _open(
+                            context,
+                            Uri.parse(
+                              'https://wa.me/${whatsAppNumber(customer.phone)}',
+                            ),
+                          ),
+                  ),
+                ),
+              ],
             ),
             if (holding.isNotEmpty) ...[
               const SectionHeader('Material with customer'),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
+              LayoutBuilder(
+                builder: (context, c) {
+                  final cols = c.maxWidth >= 600 ? 4 : 2;
+                  final w = (c.maxWidth - (cols - 1) * 10) / cols;
+                  return Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
                     children: [
                       for (final e in holding.entries)
-                        Chip(
-                          label: Text(
-                            '${e.key.split('|').first} · '
-                            '${formatQty(e.value)} ${units[e.key]}',
+                        SizedBox(
+                          width: w,
+                          child: SoftCard(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  e.key.split('|').first,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text.rich(
+                                  TextSpan(
+                                    children: [
+                                      TextSpan(
+                                        text: formatQty(e.value),
+                                        style: theme.textTheme.headlineSmall,
+                                      ),
+                                      TextSpan(
+                                        text: '  ${units[e.key]}',
+                                        style: theme.textTheme.bodySmall,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                          labelStyle: theme.textTheme.labelLarge,
                         ),
                     ],
-                  ),
-                ),
+                  );
+                },
               ),
             ],
             SectionHeader('Open deliveries', count: open.length),
             if (open.isEmpty)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text('Nothing out on rent.'),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                child: Text(
+                  'Nothing out on rent.',
+                  style: theme.textTheme.bodySmall,
+                ),
               ),
             for (final r in open)
               Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 10),
                 child: RentalTile(r, showCustomer: false),
               ),
             if (closed.isNotEmpty) ...[
               SectionHeader('Returned', count: closed.length),
               for (final r in closed)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.only(bottom: 10),
                   child: RentalTile(r, showCustomer: false),
                 ),
             ],
@@ -177,6 +276,19 @@ class CustomerDetailScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _open(BuildContext context, Uri uri) async {
+    final messenger = ScaffoldMessenger.of(context);
+    var ok = false;
+    try {
+      ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+    if (!ok) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not open this on this device')),
+      );
+    }
   }
 }
 
@@ -188,17 +300,15 @@ class _InfoLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
+    padding: const EdgeInsets.symmetric(vertical: 5),
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(
-          icon,
-          size: 18,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        Icon(icon, size: 18, color: context.sd.muted),
         const SizedBox(width: 10),
-        Expanded(child: Text(text)),
+        Expanded(
+          child: Text(text, style: Theme.of(context).textTheme.bodyMedium),
+        ),
       ],
     ),
   );

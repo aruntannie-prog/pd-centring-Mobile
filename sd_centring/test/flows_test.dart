@@ -131,6 +131,7 @@ void main() {
     appTest('undo a return puts material back out', (tester, h) async {
       await openDelivery(tester, 'SD-1001');
 
+      await scrollTo(tester, find.textContaining('Returned 15 of 40'));
       expect(find.textContaining('Returned 15 of 40'), findsOneWidget);
       await scrollTo(tester, find.byTooltip('Undo this return'));
       await tester.ensureVisible(find.byTooltip('Undo this return'));
@@ -302,7 +303,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Ravi Kumar'));
       await tester.pumpAndSettle();
-      expect(find.text('MATERIAL WITH CUSTOMER'), findsOneWidget);
+      expect(find.text('Material with customer'), findsOneWidget);
       await tester.tap(find.byType(PopupMenuButton<String>));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete customer'));

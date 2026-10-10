@@ -14,6 +14,7 @@ import 'package:sd_centring/state/settings.dart';
 import 'package:sd_centring/ui/screens/delivery_detail_screen.dart';
 import 'package:sd_centring/ui/screens/whatsapp_sheet.dart';
 import 'package:sd_centring/ui/theme.dart';
+import 'package:sd_centring/ui/widgets/rental_tile.dart';
 
 void main() {
   group('whatsAppNumber', () {
@@ -143,7 +144,7 @@ void main() {
       addTearDown(() => WhatsAppSheet.opener = (uri) async => false);
 
       final app = await pumpDetail(tester);
-      await tester.tap(find.text('Send WhatsApp reminder'));
+      await tester.tap(find.text('WhatsApp'));
       await tester.pumpAndSettle();
       expect(find.text('To Murugan Builders · +919840012345'), findsOneWidget);
       expect(find.textContaining('4 days overdue'), findsWidgets);
@@ -166,7 +167,7 @@ void main() {
     testWidgets('explains when WhatsApp cannot open', (tester) async {
       WhatsAppSheet.opener = (uri) async => false;
       final app = await pumpDetail(tester);
-      await tester.tap(find.text('Send WhatsApp reminder'));
+      await tester.tap(find.text('WhatsApp'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Open WhatsApp'));
       await tester.pumpAndSettle();
@@ -181,13 +182,10 @@ void main() {
 
     testWidgets('disabled without a valid mobile number', (tester) async {
       final app = await pumpDetail(tester, phone: '2345');
-      final button = tester.widget<OutlinedButton>(
-        find.ancestor(
-          of: find.text('Send WhatsApp reminder'),
-          matching: find.byType(OutlinedButton),
-        ),
+      final button = tester.widget<QuickAction>(
+        find.widgetWithText(QuickAction, 'WhatsApp'),
       );
-      expect(button.onPressed, isNull);
+      expect(button.onTap, isNull);
       expect(find.textContaining('Add a valid mobile number'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       app.dispose();

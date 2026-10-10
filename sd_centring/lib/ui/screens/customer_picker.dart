@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../models/customer.dart';
 import '../../state/app_state.dart';
+import '../theme.dart';
+import '../widgets/rental_tile.dart';
 import 'customer_form_screen.dart';
 
 /// Searchable list of customers in a bottom sheet. Returns the chosen one.
@@ -48,8 +50,14 @@ class _CustomerPickerState extends State<CustomerPicker> {
         )
         .toList();
 
+    final theme = Theme.of(context);
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+          child: Text('Choose customer', style: theme.textTheme.titleLarge),
+        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: TextField(
@@ -58,13 +66,31 @@ class _CustomerPickerState extends State<CustomerPicker> {
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
               hintText: 'Search name or phone',
-              prefixIcon: Icon(Icons.search),
+              prefixIcon: Icon(Icons.search_rounded),
             ),
           ),
         ),
         ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.person_add_alt)),
-          title: const Text('Add new customer'),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 2,
+          ),
+          leading: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: SdColors.ember.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: const Icon(
+              Icons.person_add_alt_1_rounded,
+              color: SdColors.ember,
+            ),
+          ),
+          title: const Text(
+            'Add new customer',
+            style: TextStyle(color: SdColors.ember),
+          ),
           onTap: () async {
             final created = await CustomerFormScreen.open(
               context,
@@ -78,12 +104,21 @@ class _CustomerPickerState extends State<CustomerPicker> {
         const Divider(height: 1),
         Expanded(
           child: list.isEmpty
-              ? const Center(child: Text('No customers found'))
+              ? const EmptyState(
+                  icon: Icons.person_search_rounded,
+                  title: 'No customers found',
+                )
               : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
                   itemCount: list.length,
                   itemBuilder: (_, i) {
                     final c = list[i];
                     return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 2,
+                      ),
+                      leading: InitialsAvatar(c.name),
                       title: Text(c.name),
                       subtitle: Text(c.phone),
                       onTap: () => Navigator.pop(context, c),
