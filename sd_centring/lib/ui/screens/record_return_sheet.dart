@@ -7,6 +7,7 @@ import '../../core/quantity.dart';
 import '../../models/rental.dart';
 import '../../state/app_state.dart';
 import '../widgets/form_section.dart';
+import '../widgets/qty_stepper.dart';
 import '../theme.dart';
 
 /// Bottom sheet to record material coming back. Supports partial returns
@@ -31,6 +32,7 @@ class RecordReturnSheet extends StatefulWidget {
 
 class _RecordReturnSheetState extends State<RecordReturnSheet> {
   final _formKey = GlobalKey<FormState>();
+  final _errors = <String, String>{};
   late final List<RentalItem> _items = widget.rental.outstandingItems;
   late final Map<String, TextEditingController> _qty = {
     for (final i in _items) i.id: TextEditingController(),
@@ -73,7 +75,21 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
   }
 
   Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
+    // Check every quantity against what is still out.
+    _errors.clear();
+    for (final item in _items) {
+      final text = _qty[item.id]!.text.trim();
+      if (text.isEmpty) continue;
+      final q = parsePositiveQty(text);
+      final left = widget.rental.outstandingQty(item);
+      if (q == null) {
+        _errors[item.id] = 'Enter a number';
+      } else if (q > left + qtyEpsilon) {
+        _errors[item.id] = 'Max ${formatQty(left)}';
+      }
+    }
+    setState(() {});
+    if (_errors.isNotEmpty) return;
     const uuid = Uuid();
     final note = _note.text.trim();
     final entries = <ReturnEntry>[
@@ -147,7 +163,11 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 16),
-            for (final item in _items) _qtyRow(item),
+            for (var i = 0; i < _items.length; i++) ...[
+              if (i > 0) const Divider(height: 1),
+              _qtyRow(_items[i]),
+            ],
+            const SizedBox(height: 12),
             const SizedBox(height: 4),
             DateField(
               label: 'Return date',
@@ -178,58 +198,54 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
     final left = widget.rental.outstandingQty(item);
     final ctrl = _qty[item.id]!;
     final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
-      decoration: BoxDecoration(
-        border: Border.all(color: context.sd.line),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Row(
+    final error = _errors[item.id];
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 3,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(item.name, style: theme.textTheme.titleSmall),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${formatQty(left)} ${item.unit} out',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.name, style: theme.textTheme.titleSmall),
+                    Text(
+                      '${formatQty(left)} ${item.unit} out',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              QtyStepper(
+                fieldKey: ValueKey('return-qty-${item.id}'),
+                controller: ctrl,
+                max: left,
+                hasError: error != null,
+                onChanged: () => setState(() => _errors.remove(item.id)),
+              ),
+              TextButton(
+                onPressed: () => setState(() {
+                  ctrl.text = formatQty(left);
+                  _errors.remove(item.id);
+                }),
+                child: const Text('All'),
+              ),
+            ],
+          ),
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                error,
+                style: const TextStyle(
+                  color: SdColors.expired,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: TextFormField(
-              controller: ctrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: 'Qty',
-                suffixText: item.unit,
-              ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return null;
-                final q = parsePositiveQty(v);
-                if (q == null) return 'Invalid';
-                if (q > left + qtyEpsilon) return 'Max ${formatQty(left)}';
-                return null;
-              },
-            ),
-          ),
-          const SizedBox(width: 2),
-          TextButton(
-            onPressed: () => setState(() => ctrl.text = formatQty(left)),
-            child: const Text('All'),
-          ),
         ],
       ),
     );

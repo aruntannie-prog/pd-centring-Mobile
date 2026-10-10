@@ -124,8 +124,8 @@ void main() {
     await tester.tap(find.text('Ravi Kumar'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.widgetWithText(TextFormField, 'Item'), 'Props');
-    await tester.enterText(find.widgetWithText(TextFormField, 'Qty'), '25');
+    await tester.enterText(find.byKey(const ValueKey('item-name-0')), 'Props');
+    await tester.enterText(find.byKey(const ValueKey('item-qty-0')), '25');
     await tester.tap(find.text('15 days'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('SAVE'));

@@ -151,10 +151,7 @@ void main() {
       await tester.tap(find.text('Record return'));
       await tester.pumpAndSettle();
       // Props: 25 still out.
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Qty').last,
-        '26',
-      );
+      await tester.enterText(find.byKey(const ValueKey('return-qty-i2')), '26');
       await tester.tap(find.text('Save return'));
       await tester.pumpAndSettle();
       expect(find.text('Max 25'), findsOneWidget);
@@ -185,14 +182,75 @@ void main() {
       await tester.tap(find.byTooltip('Edit'));
       await tester.pumpAndSettle();
       // Second item is Props (40, 15 returned).
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Qty').at(1),
-        '10',
-      );
+      await tester.enterText(find.byKey(const ValueKey('item-qty-1')), '10');
       await tester.tap(find.text('SAVE'));
       await tester.pumpAndSettle();
       expect(find.textContaining('already returned'), findsOneWidget);
       expect(h.app.rentalById('demo-r1')!.items[1].qty, 40);
+    });
+
+    appTest('material chips add rows and the stepper counts', (
+      tester,
+      h,
+    ) async {
+      await tester.tap(find.text('New delivery'));
+      await tester.pumpAndSettle();
+      final form = find
+          .descendant(of: find.byType(Form), matching: find.byType(Scrollable))
+          .first;
+      await tester.scrollUntilVisible(
+        find.widgetWithText(ActionChip, 'Column Box'),
+        120,
+        scrollable: form,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ActionChip, 'Column Box'));
+      await tester.pumpAndSettle();
+      // The first empty row is reused, so there is still one row.
+      expect(find.byKey(const ValueKey('item-name-1')), findsNothing);
+      expect(
+        tester
+            .widget<TextFormField>(find.byKey(const ValueKey('item-name-0')))
+            .controller!
+            .text,
+        'Column Box',
+      );
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('item-qty-0')),
+        120,
+        scrollable: form,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('More').first);
+      await tester.pump();
+      await tester.tap(find.byTooltip('More').first);
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('item-qty-0')))
+            .controller!
+            .text,
+        '2',
+      );
+      await tester.tap(find.byTooltip('Less').first);
+      await tester.pump();
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const ValueKey('item-qty-0')))
+            .controller!
+            .text,
+        '1',
+      );
+      // A second material gets its own row.
+      await tester.scrollUntilVisible(
+        find.widgetWithText(ActionChip, 'Round Box'),
+        120,
+        scrollable: form,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ActionChip, 'Round Box'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('item-name-1')), findsOneWidget);
     });
 
     appTest('duplicate DC number is refused', (tester, h) async {

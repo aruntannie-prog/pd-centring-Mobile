@@ -108,7 +108,7 @@ class DeliveryDetailScreen extends StatelessWidget {
                   Expanded(
                     child: QuickAction(
                       icon: Icons.event_repeat_rounded,
-                      label: 'Extend expiry',
+                      label: 'Extend',
                       color: SdColors.ember,
                       onTap: () => _changeExpiry(context, rental),
                     ),

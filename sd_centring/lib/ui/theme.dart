@@ -141,7 +141,7 @@ ThemeData buildTheme(Brightness brightness) {
     ),
   );
 
-  final radius16 = BorderRadius.circular(16);
+  final radius16 = BorderRadius.circular(14);
 
   return base.copyWith(
     extensions: [tokens],
@@ -169,7 +169,7 @@ ThemeData buildTheme(Brightness brightness) {
       filled: true,
       fillColor: tokens.field,
       isDense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       labelStyle: TextStyle(color: tokens.muted, fontWeight: FontWeight.w600),
       floatingLabelStyle: TextStyle(
         color: primary,

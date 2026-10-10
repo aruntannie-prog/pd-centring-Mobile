@@ -157,7 +157,7 @@ class CustomerDetailScreen extends StatelessWidget {
                 Expanded(
                   child: QuickAction(
                     icon: Icons.add_box_rounded,
-                    label: 'New delivery',
+                    label: 'New DC',
                     color: SdColors.ember,
                     onTap: () => DeliveryFormScreen.open(
                       context,
@@ -202,52 +202,47 @@ class CustomerDetailScreen extends StatelessWidget {
             ),
             if (holding.isNotEmpty) ...[
               const SectionHeader('Material with customer'),
-              LayoutBuilder(
-                builder: (context, c) {
-                  final cols = c.maxWidth >= 600 ? 4 : 2;
-                  final w = (c.maxWidth - (cols - 1) * 10) / cols;
-                  return Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      for (final e in holding.entries)
-                        SizedBox(
-                          width: w,
-                          child: SoftCard(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  e.key.split('|').first,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text.rich(
-                                  TextSpan(
-                                    children: [
-                                      TextSpan(
-                                        text: formatQty(e.value),
-                                        style: theme.textTheme.headlineSmall,
-                                      ),
-                                      TextSpan(
-                                        text: '  ${units[e.key]}',
-                                        style: theme.textTheme.bodySmall,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+              SoftCard(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
+                ),
+                child: Column(
+                  children: [
+                    for (final (i, e) in holding.entries.indexed) ...[
+                      if (i > 0) const Divider(height: 1),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                e.key.split('|').first,
+                                style: theme.textTheme.titleSmall,
+                              ),
                             ),
-                          ),
+                            Text(
+                              formatQty(e.value),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            SizedBox(
+                              width: 30,
+                              child: Text(
+                                '${units[e.key]}',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
                     ],
-                  );
-                },
+                  ],
+                ),
               ),
             ],
             SectionHeader('Open deliveries', count: open.length),

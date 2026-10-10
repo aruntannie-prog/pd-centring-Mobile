@@ -12,6 +12,7 @@ import '../../state/app_state.dart';
 import '../widgets/rental_tile.dart';
 import '../theme.dart';
 import '../widgets/form_section.dart';
+import '../widgets/qty_stepper.dart';
 import 'customer_form_screen.dart';
 import 'customer_picker.dart';
 
@@ -55,11 +56,13 @@ class _ItemDraft {
   final String id;
   final TextEditingController name;
   final TextEditingController qty;
+  final FocusNode qtyFocus = FocusNode();
   String unit;
 
   void dispose() {
     name.dispose();
     qty.dispose();
+    qtyFocus.dispose();
   }
 }
 
@@ -374,7 +377,7 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
                   trailing: TextButton.icon(
                     onPressed: _newCustomer,
                     icon: const Icon(Icons.person_add_alt_1_rounded, size: 18),
-                    label: const Text('New customer'),
+                    label: const Text('New'),
                   ),
                   children: [
                     InkWell(
@@ -516,20 +519,26 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final d in _quickDays)
-                          ChoiceChip(
-                            label: Text('$d days'),
-                            selected: length == d,
-                            onSelected: (_) => setState(() {
-                              _expiresOn = addDays(_issuedOn, d);
-                              _dirty = true;
-                            }),
-                          ),
-                      ],
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          for (final d in _quickDays)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ChoiceChip(
+                                visualDensity: VisualDensity.compact,
+                                label: Text('$d days'),
+                                selected: length == d,
+                                onSelected: (_) => setState(() {
+                                  _expiresOn = addDays(_issuedOn, d);
+                                  _dirty = true;
+                                }),
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -543,14 +552,47 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
                     style: theme.textTheme.bodySmall,
                   ),
                   children: [
-                    for (var i = 0; i < _items.length; i++) _itemRow(i),
-                    OutlinedButton.icon(
-                      onPressed: () => setState(() {
-                        _items.add(_ItemDraft(id: _uuid.v4()));
-                        _dirty = true;
-                      }),
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add item'),
+                    // One tap adds a common material; typing is only for others.
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          for (final m in defaultMaterials)
+                            Padding(
+                              padding: const EdgeInsets.only(right: 6),
+                              child: ActionChip(
+                                visualDensity: VisualDensity.compact,
+                                avatar: Icon(
+                                  _items.any((d) => d.name.text.trim() == m)
+                                      ? Icons.check_rounded
+                                      : Icons.add_rounded,
+                                  size: 16,
+                                  color: SdColors.ember,
+                                ),
+                                label: Text(m),
+                                onPressed: () => _quickAdd(m),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    for (var i = 0; i < _items.length; i++) ...[
+                      if (i > 0) const Divider(height: 1),
+                      _itemRow(i),
+                    ],
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => setState(() {
+                          _items.add(_ItemDraft(id: _uuid.v4()));
+                          _dirty = true;
+                        }),
+                        icon: const Icon(Icons.edit_note_rounded),
+                        label: const Text('Add other item'),
+                      ),
                     ),
                   ],
                 ),
@@ -578,50 +620,85 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
     );
   }
 
+  /// Adds [material] (or jumps to it if already listed) and focuses its qty.
+  void _quickAdd(String material) {
+    var draft = _items.where((d) => d.name.text.trim() == material).firstOrNull;
+    if (draft == null) {
+      draft = _items.where((d) => d.name.text.trim().isEmpty).firstOrNull;
+      if (draft != null) {
+        draft.name.text = material;
+      } else {
+        draft = _ItemDraft(id: _uuid.v4(), name: material);
+        _items.add(draft);
+      }
+      _dirty = true;
+    }
+    setState(() {});
+    final focus = draft.qtyFocus;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) focus.requestFocus();
+    });
+  }
+
   Widget _itemRow(int index) {
     final d = _items[index];
+    final theme = Theme.of(context);
     final name = TextFormField(
+      key: ValueKey('item-name-$index'),
       controller: d.name,
       onChanged: (_) => _markDirty(),
       textCapitalization: TextCapitalization.words,
-      decoration: InputDecoration(
-        labelText: 'Item',
-        suffixIcon: PopupMenuButton<String>(
-          tooltip: 'Pick material',
-          icon: const Icon(Icons.arrow_drop_down),
-          onSelected: (v) => setState(() {
-            d.name.text = v;
-            _dirty = true;
-          }),
-          itemBuilder: (_) => [
-            for (final m in defaultMaterials)
-              PopupMenuItem(value: m, child: Text(m)),
+      style: theme.textTheme.titleSmall?.copyWith(fontSize: 15),
+      decoration: const InputDecoration(
+        hintText: 'Item name',
+        filled: false,
+        isDense: true,
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        contentPadding: EdgeInsets.symmetric(vertical: 10),
+      ),
+    );
+    final qty = QtyStepper(
+      fieldKey: ValueKey('item-qty-$index'),
+      controller: d.qty,
+      focusNode: d.qtyFocus,
+      onChanged: () {
+        _markDirty();
+        setState(() {});
+      },
+    );
+    final unit = PopupMenuButton<String>(
+      tooltip: 'Unit',
+      initialValue: d.unit,
+      onSelected: (u) => setState(() {
+        d.unit = u;
+        _dirty = true;
+      }),
+      itemBuilder: (_) => [
+        for (final u in defaultUnits) PopupMenuItem(value: u, child: Text(u)),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              d.unit,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: context.sd.muted,
+              ),
+            ),
+            Icon(Icons.expand_more_rounded, size: 16, color: context.sd.muted),
           ],
         ),
       ),
     );
-    final qty = TextFormField(
-      controller: d.qty,
-      onChanged: (_) => _markDirty(),
-      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      decoration: const InputDecoration(labelText: 'Qty'),
-    );
-    final unit = DropdownButton<String>(
-      value: defaultUnits.contains(d.unit) ? d.unit : null,
-      hint: Text(d.unit),
-      underline: const SizedBox.shrink(),
-      items: [
-        for (final u in defaultUnits)
-          DropdownMenuItem(value: u, child: Text(u)),
-      ],
-      onChanged: (u) => setState(() {
-        if (u != null) d.unit = u;
-        _dirty = true;
-      }),
-    );
     final remove = IconButton(
       tooltip: 'Remove item',
-      icon: const Icon(Icons.remove_circle_outline),
+      visualDensity: VisualDensity.compact,
+      iconSize: 18,
+      icon: const Icon(Icons.close_rounded),
       onPressed: _items.length == 1
           ? null
           : () => setState(() {
@@ -630,51 +707,34 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
             }),
     );
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        border: Border.all(color: context.sd.line),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
-        child: LayoutBuilder(
-          builder: (context, c) {
-            // Phones: item name gets its own line so it is never cut off.
-            if (c.maxWidth < 480) {
-              return Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(child: name),
-                      remove,
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(child: qty),
-                      const SizedBox(width: 12),
-                      unit,
-                      const SizedBox(width: 48),
-                    ],
-                  ),
-                ],
-              );
-            }
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: LayoutBuilder(
+        builder: (context, c) {
+          // Narrow phones: name on its own line, controls below.
+          if (c.maxWidth < 290) {
+            return Column(
               children: [
-                Expanded(flex: 5, child: name),
-                const SizedBox(width: 8),
-                Expanded(flex: 3, child: qty),
-                const SizedBox(width: 8),
-                unit,
-                remove,
+                Row(
+                  children: [
+                    Expanded(child: name),
+                    remove,
+                  ],
+                ),
+                Row(children: [qty, unit]),
               ],
             );
-          },
-        ),
+          }
+          return Row(
+            children: [
+              Expanded(child: name),
+              const SizedBox(width: 8),
+              qty,
+              unit,
+              remove,
+            ],
+          );
+        },
       ),
     );
   }
