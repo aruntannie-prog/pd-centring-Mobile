@@ -10,6 +10,8 @@ import '../../core/quantity.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/rental_tile.dart';
+import '../widgets/stored_image.dart';
+import 'document_viewer.dart';
 import 'customer_form_screen.dart';
 import 'delivery_form_screen.dart';
 
@@ -120,7 +122,20 @@ class CustomerDetailScreen extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      InitialsAvatar(customer.name, size: 60),
+                      GestureDetector(
+                        onTap: customer.photoUrl.isEmpty
+                            ? null
+                            : () => showImage(
+                                context,
+                                customer.photoUrl,
+                                title: customer.name,
+                              ),
+                        child: InitialsAvatar(
+                          customer.name,
+                          size: 64,
+                          photoUrl: customer.photoUrl,
+                        ),
+                      ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -146,6 +161,11 @@ class CustomerDetailScreen extends StatelessWidget {
                     _InfoLine(Icons.phone_forwarded_rounded, customer.altPhone),
                   if (customer.address.isNotEmpty)
                     _InfoLine(Icons.place_rounded, customer.address),
+                  if (customer.referredBy.isNotEmpty)
+                    _InfoLine(
+                      Icons.handshake_outlined,
+                      'Referred by ${customer.referredBy}',
+                    ),
                   if (customer.notes.isNotEmpty)
                     _InfoLine(Icons.notes_rounded, customer.notes),
                 ],
@@ -200,6 +220,76 @@ class CustomerDetailScreen extends StatelessWidget {
                 ),
               ],
             ),
+            SectionHeader(
+              'ID & address proof',
+              count: customer.documents.isEmpty
+                  ? null
+                  : customer.documents.length,
+              trailing: TextButton(
+                onPressed: () =>
+                    CustomerFormScreen.open(context, existing: customer),
+                child: Text(customer.documents.isEmpty ? 'Add' : 'Edit'),
+              ),
+            ),
+            if (customer.documents.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'No documents yet.',
+                  style: theme.textTheme.bodySmall,
+                ),
+              )
+            else
+              SizedBox(
+                height: 118,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: customer.documents.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 10),
+                  itemBuilder: (_, i) {
+                    final d = customer.documents[i];
+                    return SizedBox(
+                      width: 104,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => openDocument(context, d),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: SizedBox(
+                                width: 104,
+                                height: 78,
+                                child: d.isPdf
+                                    ? Container(
+                                        color: SdColors.expired.withValues(
+                                          alpha: 0.10,
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: const Icon(
+                                          Icons.picture_as_pdf_rounded,
+                                          color: SdColors.expired,
+                                          size: 30,
+                                        ),
+                                      )
+                                    : StoredImage(d.url),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              d.kind,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelMedium,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
             if (holding.isNotEmpty) ...[
               const SectionHeader('Material with customer'),
               SoftCard(

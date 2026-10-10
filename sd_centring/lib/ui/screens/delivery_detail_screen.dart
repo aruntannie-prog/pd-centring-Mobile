@@ -156,7 +156,11 @@ class DeliveryDetailScreen extends StatelessWidget {
                   : () => CustomerDetailScreen.open(context, customer.id),
               child: Row(
                 children: [
-                  InitialsAvatar(app.customerNameOf(rental), size: 48),
+                  InitialsAvatar(
+                    app.customerNameOf(rental),
+                    size: 48,
+                    photoUrl: customer?.photoUrl ?? '',
+                  ),
                   const SizedBox(width: 14),
                   Expanded(
                     child: Column(

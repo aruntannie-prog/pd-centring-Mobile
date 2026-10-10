@@ -6,6 +6,8 @@
 
 // A dev tool: demo-only settings and fire-and-forget navigation are fine here.
 // ignore_for_file: invalid_use_of_visible_for_testing_member, use_build_context_synchronously
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +16,7 @@ import 'package:sd_centring/data/demo_data.dart';
 import 'package:sd_centring/data/memory_repository.dart';
 import 'package:sd_centring/data/repository.dart';
 import 'package:sd_centring/domain/whatsapp.dart';
+import 'package:sd_centring/models/customer.dart';
 import 'package:sd_centring/models/rental.dart';
 import 'package:sd_centring/services/reminder_scheduler.dart';
 import 'package:sd_centring/state/app_state.dart';
@@ -47,7 +50,46 @@ class _Repo extends MemoryRepository {
       fail ? Stream.error('permission-denied') : super.watchRentals();
 }
 
-void main() {
+/// Draws a fake ID card so screenshots can show a document thumbnail.
+Future<Uint8List> _sampleCard() async {
+  final rec = ui.PictureRecorder();
+  final c = Canvas(rec);
+  const w = 640.0, h = 400.0;
+  c.drawRRect(
+    RRect.fromRectAndRadius(
+      const Rect.fromLTWH(0, 0, w, h),
+      const Radius.circular(24),
+    ),
+    Paint()..color = const Color(0xFFEFF4FA),
+  );
+  c.drawRect(
+    const Rect.fromLTWH(0, 0, w, 70),
+    Paint()..color = const Color(0xFF2F6FED),
+  );
+  c.drawRRect(
+    RRect.fromRectAndRadius(
+      const Rect.fromLTWH(40, 110, 150, 190),
+      const Radius.circular(12),
+    ),
+    Paint()..color = const Color(0xFFB8C6DB),
+  );
+  final line = Paint()..color = const Color(0xFF9AA9BF);
+  for (var i = 0; i < 5; i++) {
+    c.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(220, 120.0 + i * 36, i.isEven ? 340 : 260, 16),
+        const Radius.circular(8),
+      ),
+      line,
+    );
+  }
+  final img = await rec.endRecording().toImage(w.toInt(), h.toInt());
+  final data = await img.toByteData(format: ui.ImageByteFormat.png);
+  return data!.buffer.asUint8List();
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   final q = Uri.base.queryParameters;
   final screen = q['s'] ?? 'alerts';
   final dark = q['theme'] == 'dark';
@@ -71,6 +113,45 @@ void main() {
     accountEmail: 'owner@sdcentring.in',
     signOut: (screen == 'settings') ? () async {} : null,
   );
+  if (screen == 'customer' || screen == 'editcustomer') {
+    final card = await _sampleCard();
+    final url = await app.files.upload(
+      path: 'customers/demo-c1/docs/a.png',
+      bytes: card,
+      contentType: 'image/png',
+    );
+    final pdf = await app.files.upload(
+      path: 'customers/demo-c1/docs/b.pdf',
+      bytes: Uint8List.fromList([37, 80, 68, 70]),
+      contentType: 'application/pdf',
+    );
+    final c1 = demo.customers.first;
+    await repo.saveCustomer(
+      c1.copyWith(
+        referredBy: 'Lakshmi Constructions',
+        documents: [
+          CustomerDoc(
+            id: 'd1',
+            kind: 'Aadhaar',
+            fileName: 'aadhaar_front.png',
+            url: url,
+            contentType: 'image/png',
+            sizeBytes: card.length,
+            uploadedAt: DateTime.now(),
+          ),
+          CustomerDoc(
+            id: 'd2',
+            kind: 'Utility bill',
+            fileName: 'eb_bill_sep.pdf',
+            url: pdf,
+            contentType: 'application/pdf',
+            sizeBytes: 182000,
+            uploadedAt: DateTime.now(),
+          ),
+        ],
+      ),
+    );
+  }
   final nav = GlobalKey<NavigatorState>();
 
   final tab = switch (screen) {
@@ -143,6 +224,11 @@ void main() {
         await push(const CustomerDetailScreen(customerId: 'demo-c1'));
       case 'newcustomer':
         await push(const CustomerFormScreen(), dialog: true);
+      case 'editcustomer':
+        await push(
+          CustomerFormScreen(existing: app.customerById('demo-c1')),
+          dialog: true,
+        );
     }
   });
 }

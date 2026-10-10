@@ -136,7 +136,7 @@ class _CustomerRow extends StatelessWidget {
       onTap: () => CustomerDetailScreen.open(context, customer.id),
       child: Row(
         children: [
-          InitialsAvatar(customer.name, size: 48),
+          InitialsAvatar(customer.name, size: 48, photoUrl: customer.photoUrl),
           const SizedBox(width: 14),
           Expanded(
             child: Column(

@@ -118,7 +118,7 @@ class _CustomerPickerState extends State<CustomerPicker> {
                         horizontal: 20,
                         vertical: 2,
                       ),
-                      leading: InitialsAvatar(c.name),
+                      leading: InitialsAvatar(c.name, photoUrl: c.photoUrl),
                       title: Text(c.name),
                       subtitle: Text(c.phone),
                       onTap: () => Navigator.pop(context, c),

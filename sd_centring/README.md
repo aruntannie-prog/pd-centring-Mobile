@@ -25,8 +25,10 @@ All 22 screens are in [`docs/screenshots/`](docs/screenshots).
   with a date and note. Any return can be undone. A delivery closes when
   everything is back.
 - **Extend expiry:** every change is kept in a history.
-- **Customers:** contact details, the material they currently hold, and their
-  deliveries. Customers with deliveries cannot be deleted.
+- **Customers:** contact details, "referred by", a profile photo (camera or
+  gallery) and ID / address proofs (Aadhaar, PAN, voter ID, utility bill…)
+  as photos or PDFs up to 10 MB, plus the material they currently hold and
+  their deliveries. Customers with deliveries cannot be deleted.
 - **Reminders on the phone:** N days before expiry (1/2/3/5/7, set in
   Settings), on the expiry day, and the day after if material is still out.
   Each reminder fires at your chosen time. Tapping one opens that delivery.
@@ -58,11 +60,12 @@ flutter run -d chrome  # browser
 Use a **new Firebase project just for SD Centring**. Don't reuse PD Centring's.
 
 1. Create a Firebase project, then enable **Authentication → Email/Password**
-   and **Firestore Database** (choose *production mode*, not test mode).
+   and **Firestore Database** (choose *production mode*, not test mode), and
+   **Storage** (for customer photos and documents).
 2. In `sd_centring/`, run `flutterfire configure --project=<project-id>`.
    This replaces `lib/firebase_options.dart`.
-3. Deploy the security rules: `firebase deploy --only firestore:rules`
-   (rules are in `firestore.rules`).
+3. Deploy the security rules: `firebase deploy --only firestore:rules,storage`
+   (rules are in `firestore.rules` and `storage.rules`; both allow staff only).
 4. Add each staff member:
    - **Authentication → Users → Add user** (email + password).
    - **Firestore → start collection `staff` → document ID = that user's UID**
@@ -105,6 +108,9 @@ number banned, so they are deliberately not used.
 - No secrets are bundled in the app, and there is no `.env` asset.
 - Security rules live in the repo, have no expiry, and require a staff list.
 - Items and returns are stored as real Firestore arrays, not JSON strings.
+- Photos and documents go to Firebase Storage (staff-only rules, images or
+  PDFs, 10 MB max); only their URLs are kept on the customer. PD stored
+  photos as base64 inside the record and left its bucket open to anyone.
 - Saves don't wait for the server, so the app never hangs offline. Failures
   are reported on screen.
 - Dates are stored as calendar days (`yyyy-MM-dd`), so time zones can't shift

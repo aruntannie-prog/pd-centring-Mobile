@@ -8,6 +8,7 @@ import '../../models/rental.dart';
 import '../../state/app_state.dart';
 import '../screens/delivery_detail_screen.dart';
 import '../theme.dart';
+import 'stored_image.dart';
 
 // ── Surfaces ───────────────────────────────────────────────────────────────
 
@@ -317,10 +318,18 @@ class ExpiryTimeline extends StatelessWidget {
 /// Initials on a colour picked from the name, so each customer is
 /// recognisable at a glance.
 class InitialsAvatar extends StatelessWidget {
-  const InitialsAvatar(this.name, {super.key, this.size = 44});
+  const InitialsAvatar(
+    this.name, {
+    super.key,
+    this.size = 44,
+    this.photoUrl = '',
+  });
 
   final String name;
   final double size;
+
+  /// Shown instead of the initials when set.
+  final String photoUrl;
 
   static const _palette = [
     Color(0xFFEE5A24),
@@ -344,6 +353,16 @@ class InitialsAvatar extends StatelessWidget {
         ? '?'
         : words.take(2).map((w) => w.characters.first.toUpperCase()).join();
     final color = _palette[name.hashCode.abs() % _palette.length];
+    if (photoUrl.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.32),
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: StoredImage(photoUrl),
+        ),
+      );
+    }
     return Container(
       width: size,
       height: size,
@@ -518,33 +537,46 @@ class SectionHeader extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-          Flexible(
-            child: Text(
-              text,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+          // Title and count take the free space; the trailing action keeps
+          // its natural width at the far right.
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    text,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                if (count != null) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (color ?? context.sd.muted).withValues(
+                        alpha: 0.12,
+                      ),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        color: color ?? context.sd.muted,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
-          if (count != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: (color ?? context.sd.muted).withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(99),
-              ),
-              child: Text(
-                '$count',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  color: color ?? context.sd.muted,
-                ),
-              ),
-            ),
-          ],
-          if (trailing != null) ...[const Spacer(), trailing!],
+          ?trailing,
         ],
       ),
     );

@@ -46,7 +46,7 @@ class FormSection extends StatelessWidget {
                         ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
-                if (trailing != null) Flexible(child: trailing!),
+                ?trailing,
               ],
             ),
             const SizedBox(height: 14),

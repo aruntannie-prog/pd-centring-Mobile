@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/dates.dart';
+import '../data/file_store.dart';
 import '../data/repository.dart';
 import '../domain/expiry.dart';
 import '../domain/reminders.dart';
@@ -23,8 +24,10 @@ class AppState extends ChangeNotifier {
     required this.scheduler,
     this.accountEmail,
     this.signOut,
+    FileStore? files,
     DateTime Function()? clock,
-  }) : _clock = clock ?? DateTime.now {
+  }) : files = files ?? MemoryFileStore(),
+       _clock = clock ?? DateTime.now {
     _subs.add(
       repo.watchCustomers().listen((list) {
         list.sort(
@@ -56,6 +59,9 @@ class AppState extends ChangeNotifier {
   final Repository repo;
   final ReminderSettings settings;
   final ReminderScheduler scheduler;
+
+  /// Customer photos and documents.
+  final FileStore files;
 
   /// Signed-in account, shown in Settings. Null in demo mode.
   final String? accountEmail;
@@ -125,7 +131,15 @@ class AppState extends ChangeNotifier {
   /// Refuses to delete a customer who still has deliveries on record.
   Future<bool> deleteCustomer(String id) async {
     if (_rentals.any((r) => r.customerId == id)) return false;
+    final c = _customersById[id];
     await repo.deleteCustomer(id);
+    // Remove their photo and documents from storage too.
+    if (c != null) {
+      if (c.photoUrl.isNotEmpty) unawaited(files.delete(c.photoUrl));
+      for (final d in c.documents) {
+        unawaited(files.delete(d.url));
+      }
+    }
     return true;
   }
 

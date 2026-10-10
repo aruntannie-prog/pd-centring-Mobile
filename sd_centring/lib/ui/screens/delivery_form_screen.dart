@@ -407,7 +407,10 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
                                       color: context.sd.muted,
                                     ),
                                   )
-                                : InitialsAvatar(_customer!.name),
+                                : InitialsAvatar(
+                                    _customer!.name,
+                                    photoUrl: _customer!.photoUrl,
+                                  ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(

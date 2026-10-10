@@ -1,0 +1,34 @@
+rules_version = '2';
+
+// SD Centring file storage rules. Deploy with:  firebase deploy --only storage
+//
+// Customer photos and ID / address proofs live under customers/{customerId}/.
+// Only signed-in staff (a document at staff/{uid} in Firestore) can read or
+// write them, uploads must be images or PDFs, and nothing may exceed 10 MB.
+// (The PD app allowed anyone to read and write its customer files.)
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isStaff() {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/staff/$(request.auth.uid));
+    }
+
+    function isAllowedFile() {
+      return request.resource.size < 10 * 1024 * 1024
+        && (request.resource.contentType.matches('image/.*')
+            || request.resource.contentType == 'application/pdf');
+    }
+
+    match /customers/{customerId}/{allPaths=**} {
+      allow read: if isStaff();
+      allow create, update: if isStaff() && isAllowedFile();
+      allow delete: if isStaff();
+    }
+
+    // Everything else is closed.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

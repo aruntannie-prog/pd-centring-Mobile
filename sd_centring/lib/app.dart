@@ -1,10 +1,12 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'config/brand.dart';
 import 'data/demo_data.dart';
+import 'data/file_store.dart';
 import 'data/firestore_repository.dart';
 import 'data/memory_repository.dart';
 import 'data/repository.dart';
@@ -76,6 +78,7 @@ class SdApp extends StatelessWidget {
             settings: settings,
             accountEmail: user.email ?? '',
             signOut: FirebaseAuth.instance.signOut,
+            files: FirebaseFileStore(FirebaseStorage.instance),
             createRepo: () => FirestoreRepository(FirebaseFirestore.instance),
           );
         },
@@ -107,6 +110,7 @@ class _Session extends StatefulWidget {
     required this.createRepo,
     this.accountEmail,
     this.signOut,
+    this.files,
   });
 
   final ReminderScheduler scheduler;
@@ -114,6 +118,7 @@ class _Session extends StatefulWidget {
   final Repository Function() createRepo;
   final String? accountEmail;
   final Future<void> Function()? signOut;
+  final FileStore? files;
 
   @override
   State<_Session> createState() => _SessionState();
@@ -129,6 +134,7 @@ class _SessionState extends State<_Session> with WidgetsBindingObserver {
     scheduler: widget.scheduler,
     accountEmail: widget.accountEmail,
     signOut: widget.signOut,
+    files: widget.files,
   );
 
   @override
