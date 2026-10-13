@@ -10,6 +10,7 @@ import '../domain/reminders.dart';
 import '../models/customer.dart';
 import '../models/rental.dart';
 import '../services/reminder_scheduler.dart';
+import 'drafts.dart';
 import 'settings.dart';
 
 /// Live view of all customers and deliveries, plus the actions screens use.
@@ -25,8 +26,10 @@ class AppState extends ChangeNotifier {
     this.accountEmail,
     this.signOut,
     FileStore? files,
+    DraftStore? drafts,
     DateTime Function()? clock,
   }) : files = files ?? MemoryFileStore(),
+       drafts = drafts ?? DraftStore.inMemory(),
        _clock = clock ?? DateTime.now {
     _subs.add(
       repo.watchCustomers().listen((list) {
@@ -54,7 +57,16 @@ class AppState extends ChangeNotifier {
       }),
     );
     settings.addListener(_changed);
+    repo.pendingCustomerIds.addListener(_onPendingChanged);
   }
+
+  void _onPendingChanged() {
+    if (!_disposed) notifyListeners();
+  }
+
+  /// True while this customer's latest change has not reached the cloud.
+  bool isPending(String customerId) =>
+      repo.pendingCustomerIds.value.contains(customerId);
 
   final Repository repo;
   final ReminderSettings settings;
@@ -62,6 +74,9 @@ class AppState extends ChangeNotifier {
 
   /// Customer photos and documents.
   final FileStore files;
+
+  /// Half-typed forms kept on this device.
+  final DraftStore drafts;
 
   /// Signed-in account, shown in Settings. Null in demo mode.
   final String? accountEmail;
@@ -127,6 +142,28 @@ class AppState extends ChangeNotifier {
   // ── Actions ────────────────────────────────────────────────────────────
 
   Future<void> saveCustomer(Customer c) => repo.saveCustomer(c);
+
+  /// Other customers whose main or alternate number matches any of
+  /// [phones] (compared on the last 10 digits).
+  List<Customer> customersWithPhone(
+    Iterable<String> phones, {
+    String? exceptId,
+  }) {
+    final keys = {
+      for (final p in phones)
+        if (phoneKey(p).length >= 10) phoneKey(p),
+    };
+    if (keys.isEmpty) return const [];
+    return _customers
+        .where(
+          (c) =>
+              c.id != exceptId &&
+              (keys.contains(phoneKey(c.phone)) ||
+                  (c.altPhone.isNotEmpty &&
+                      keys.contains(phoneKey(c.altPhone)))),
+        )
+        .toList();
+  }
 
   /// Refuses to delete a customer who still has deliveries on record.
   Future<bool> deleteCustomer(String id) async {
@@ -214,6 +251,7 @@ class AppState extends ChangeNotifier {
     _disposed = true;
     _rescheduleTimer?.cancel();
     settings.removeListener(_changed);
+    repo.pendingCustomerIds.removeListener(_onPendingChanged);
     for (final s in _subs) {
       s.cancel();
     }

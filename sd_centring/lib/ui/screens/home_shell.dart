@@ -66,15 +66,22 @@ class _HomeShellState extends State<HomeShell> {
       return ic;
     }
 
-    final showFab = _index == 0 || _index == 1;
-    final fab = showFab
-        ? FloatingActionButton.extended(
-            heroTag: 'new-delivery',
-            onPressed: () => DeliveryFormScreen.open(context),
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('New delivery'),
-          )
-        : null;
+    // Kept on this Scaffold (not the tab's own) so snack bars push it up.
+    final fab = switch (_index) {
+      0 || 1 => FloatingActionButton.extended(
+        heroTag: 'new-delivery',
+        onPressed: () => DeliveryFormScreen.open(context),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('New delivery'),
+      ),
+      2 => FloatingActionButton.extended(
+        heroTag: 'new-customer',
+        onPressed: () => addCustomer(context),
+        icon: const Icon(Icons.person_add_alt_1_rounded),
+        label: const Text('Add customer'),
+      ),
+      _ => null,
+    };
 
     return LayoutBuilder(
       builder: (context, constraints) {

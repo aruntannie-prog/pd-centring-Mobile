@@ -33,6 +33,13 @@ class MemoryRepository implements Repository {
   @override
   final ValueListenable<SyncState> sync = ValueNotifier(SyncState.demo);
 
+  /// Always empty in demo mode; tests and the screenshot tool set it to
+  /// show the "not in the cloud yet" state.
+  final pendingCustomers = ValueNotifier<Set<String>>(const {});
+
+  @override
+  ValueListenable<Set<String>> get pendingCustomerIds => pendingCustomers;
+
   @override
   Stream<String> get writeErrors => _errors.stream;
 
@@ -85,5 +92,6 @@ class MemoryRepository implements Repository {
     _customerCtrl.close();
     _rentalCtrl.close();
     _errors.close();
+    pendingCustomers.dispose();
   }
 }

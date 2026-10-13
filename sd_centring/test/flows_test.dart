@@ -376,7 +376,7 @@ void main() {
     ) async {
       await tester.tap(find.text('Customers'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('New customer'));
+      await tester.tap(find.text('Add customer'));
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -389,7 +389,7 @@ void main() {
       );
       await tester.tap(find.text('SAVE'));
       await tester.pumpAndSettle();
-      expect(find.text('Enter a valid phone number'), findsOneWidget);
+      expect(find.text('Too short: enter all 10 digits'), findsOneWidget);
 
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Phone *'),
@@ -397,11 +397,13 @@ void main() {
       );
       await tester.tap(find.text('SAVE'));
       await tester.pumpAndSettle();
-      expect(find.text('Phone number already used'), findsOneWidget);
+      expect(find.text('Number already saved'), findsOneWidget);
+      expect(find.textContaining('Murugan Builders'), findsOneWidget);
       await tester.tap(find.text('Save anyway'));
       await tester.pumpAndSettle();
       expect(h.app.customers.any((c) => c.name == 'Selvam'), isTrue);
       expect(find.text('Selvam'), findsOneWidget);
+      expect(find.text('Selvam added'), findsOneWidget);
     });
 
     appTest('renaming a customer updates their deliveries', (tester, h) async {

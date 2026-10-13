@@ -9,6 +9,23 @@ import '../widgets/rental_tile.dart';
 import 'customer_detail_screen.dart';
 import 'customer_form_screen.dart';
 
+/// Opens the new customer form, then confirms with a link to the customer.
+Future<void> addCustomer(BuildContext context) async {
+  final c = await CustomerFormScreen.open(context);
+  if (c == null || !context.mounted) return;
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text('${c.name} added'),
+        action: SnackBarAction(
+          label: 'VIEW',
+          onPressed: () => CustomerDetailScreen.open(context, c.id),
+        ),
+      ),
+    );
+}
+
 class CustomersScreen extends StatefulWidget {
   const CustomersScreen({super.key});
 
@@ -16,8 +33,11 @@ class CustomersScreen extends StatefulWidget {
   State<CustomersScreen> createState() => _CustomersScreenState();
 }
 
+enum _Sort { name, newest }
+
 class _CustomersScreenState extends State<CustomersScreen> {
   final _search = TextEditingController();
+  var _sort = _Sort.name;
 
   @override
   void dispose() {
@@ -28,26 +48,16 @@ class _CustomersScreenState extends State<CustomersScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final q = _search.text.trim().toLowerCase();
-    final qPhone = phoneKey(q);
-    final list = app.customers
-        .where(
-          (c) =>
-              q.isEmpty ||
-              c.name.toLowerCase().contains(q) ||
-              c.address.toLowerCase().contains(q) ||
-              (qPhone.length >= 3 && phoneKey(c.phone).contains(qPhone)),
-        )
-        .toList();
+    final q = _search.text.trim();
+    final list = app.customers.where((c) => c.matches(q)).toList();
+    // app.customers is already A–Z.
+    if (_sort == _Sort.newest) {
+      list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }
+    final noId = app.customers.where((c) => c.documents.isEmpty).length;
 
     final theme = Theme.of(context);
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'new-customer',
-        tooltip: 'New customer',
-        onPressed: () => CustomerFormScreen.open(context),
-        child: const Icon(Icons.person_add_alt_1_rounded),
-      ),
       body: SafeArea(
         bottom: false,
         child: PageWidth(
@@ -61,7 +71,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
                 child: Text(
-                  '${app.customers.length} customer${app.customers.length == 1 ? '' : 's'}',
+                  [
+                    '${app.customers.length} customer'
+                        '${app.customers.length == 1 ? '' : 's'}',
+                    if (noId > 0) '$noId without ID proof',
+                  ].join(' · '),
                   style: theme.textTheme.bodySmall?.copyWith(fontSize: 13.5),
                 ),
               ),
@@ -75,6 +89,23 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     prefixIcon: const Icon(Icons.search_rounded),
                     fillColor: context.sd.card,
                   ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Wrap(
+                  spacing: 8,
+                  children: [
+                    for (final (sort, label) in const [
+                      (_Sort.name, 'A–Z'),
+                      (_Sort.newest, 'Newest first'),
+                    ])
+                      ChoiceChip(
+                        label: Text(label),
+                        selected: _sort == sort,
+                        onSelected: (_) => setState(() => _sort = sort),
+                      ),
+                  ],
                 ),
               ),
               Expanded(
@@ -150,6 +181,37 @@ class _CustomerRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(customer.phone, style: theme.textTheme.bodySmall),
+                const SizedBox(height: 5),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 2,
+                  children: [
+                    if (app.isPending(customer.id))
+                      const _Mark(
+                        Icons.cloud_upload_outlined,
+                        'Not in cloud yet',
+                        SdColors.soon,
+                      )
+                    else if (!app.isDemo)
+                      const _Mark(
+                        Icons.cloud_done_outlined,
+                        'In cloud',
+                        SdColors.active,
+                      ),
+                    if (customer.documents.isEmpty)
+                      const _Mark(
+                        Icons.badge_outlined,
+                        'No ID proof',
+                        SdColors.soon,
+                      )
+                    else
+                      _Mark(
+                        Icons.badge_outlined,
+                        '${customer.documents.length} ID / proof',
+                        context.sd.muted,
+                      ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -166,4 +228,34 @@ class _CustomerRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Small icon + label status line on a customer row.
+class _Mark extends StatelessWidget {
+  const _Mark(this.icon, this.label, this.color);
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 14, color: color),
+      const SizedBox(width: 4),
+      Flexible(
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
+      ),
+    ],
+  );
 }

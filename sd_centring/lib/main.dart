@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'app.dart';
 import 'firebase_options.dart';
 import 'services/reminder_scheduler.dart';
+import 'state/drafts.dart';
 import 'state/settings.dart';
 
 Future<void> main() async {
@@ -22,6 +23,7 @@ Future<void> main() async {
   }
 
   final settings = await ReminderSettings.load();
+  final drafts = await DraftStore.load();
   final scheduler = ReminderScheduler.forPlatform();
   await scheduler.init(onOpenRental: (id) => pendingRentalId.value = id);
   final launchedFrom = await scheduler.launchRentalId();
@@ -31,6 +33,7 @@ Future<void> main() async {
     SdApp(
       firebaseReady: firebaseReady,
       settings: settings,
+      drafts: drafts,
       scheduler: scheduler,
     ),
   );

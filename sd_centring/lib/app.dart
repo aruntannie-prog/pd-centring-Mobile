@@ -13,6 +13,7 @@ import 'data/repository.dart';
 import 'core/dates.dart';
 import 'services/reminder_scheduler.dart';
 import 'state/app_state.dart';
+import 'state/drafts.dart';
 import 'state/settings.dart';
 import 'ui/screens/delivery_detail_screen.dart';
 import 'ui/screens/home_shell.dart';
@@ -28,10 +29,12 @@ class SdApp extends StatelessWidget {
     required this.firebaseReady,
     required this.settings,
     required this.scheduler,
+    this.drafts,
   });
 
   final bool firebaseReady;
   final ReminderSettings settings;
+  final DraftStore? drafts;
   final ReminderScheduler scheduler;
 
   @override
@@ -48,6 +51,7 @@ class SdApp extends StatelessWidget {
           key: const ValueKey('demo'),
           scheduler: scheduler,
           settings: settings,
+          drafts: drafts,
           createRepo: () => MemoryRepository(
             customers: demo.customers,
             rentals: demo.rentals,
@@ -76,6 +80,7 @@ class SdApp extends StatelessWidget {
             key: ValueKey(user.uid),
             scheduler: scheduler,
             settings: settings,
+            drafts: drafts,
             accountEmail: user.email ?? '',
             signOut: FirebaseAuth.instance.signOut,
             files: FirebaseFileStore(FirebaseStorage.instance),
@@ -111,10 +116,12 @@ class _Session extends StatefulWidget {
     this.accountEmail,
     this.signOut,
     this.files,
+    this.drafts,
   });
 
   final ReminderScheduler scheduler;
   final ReminderSettings settings;
+  final DraftStore? drafts;
   final Repository Function() createRepo;
   final String? accountEmail;
   final Future<void> Function()? signOut;
@@ -135,6 +142,7 @@ class _SessionState extends State<_Session> with WidgetsBindingObserver {
     accountEmail: widget.accountEmail,
     signOut: widget.signOut,
     files: widget.files,
+    drafts: widget.drafts,
   );
 
   @override

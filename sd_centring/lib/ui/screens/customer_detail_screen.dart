@@ -6,7 +6,9 @@ import '../../domain/whatsapp.dart';
 
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/dates.dart';
 import '../../core/quantity.dart';
+import '../../models/customer.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/rental_tile.dart';
@@ -26,6 +28,14 @@ class CustomerDetailScreen extends StatelessWidget {
           builder: (_) => CustomerDetailScreen(customerId: customerId),
         ),
       );
+
+  static Future<void> _edit(BuildContext context, Customer customer) async {
+    final saved = await CustomerFormScreen.open(context, existing: customer);
+    if (saved == null || !context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('Changes saved')));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,8 +75,7 @@ class CustomerDetailScreen extends StatelessWidget {
           IconButton(
             tooltip: 'Edit',
             icon: const Icon(Icons.edit_outlined),
-            onPressed: () =>
-                CustomerFormScreen.open(context, existing: customer),
+            onPressed: () => _edit(context, customer),
           ),
           PopupMenuButton<String>(
             onSelected: (v) async {
@@ -85,6 +94,10 @@ class CustomerDetailScreen extends StatelessWidget {
                 context: context,
                 builder: (ctx) => AlertDialog(
                   title: Text('Delete ${customer.name}?'),
+                  content: const Text(
+                    'Their photo and ID / address proofs are deleted too. '
+                    'This cannot be undone.',
+                  ),
                   actions: [
                     TextButton(
                       onPressed: () => Navigator.pop(ctx, false),
@@ -115,6 +128,15 @@ class CustomerDetailScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
           children: [
+            if (app.isPending(customer.id))
+              const Notice(
+                icon: Icons.cloud_upload_outlined,
+                color: SdColors.soon,
+                title: 'Not in the cloud yet',
+                message:
+                    'Saved on this phone. It uploads by itself when the '
+                    'internet is back; other phones see it after that.',
+              ),
             SoftCard(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -150,6 +172,11 @@ class CustomerDetailScreen extends StatelessWidget {
                               '${open.length} open · ${closed.length} returned',
                               style: theme.textTheme.bodySmall,
                             ),
+                            if (customer.createdAt.year > 1970)
+                              Text(
+                                'Added ${formatDay(customer.createdAt)}',
+                                style: theme.textTheme.bodySmall,
+                              ),
                           ],
                         ),
                       ),
@@ -221,8 +248,7 @@ class CustomerDetailScreen extends StatelessWidget {
                   ? null
                   : customer.documents.length,
               trailing: TextButton(
-                onPressed: () =>
-                    CustomerFormScreen.open(context, existing: customer),
+                onPressed: () => _edit(context, customer),
                 child: Text(customer.documents.isEmpty ? 'Add' : 'Edit'),
               ),
             ),

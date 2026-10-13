@@ -1,7 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
@@ -16,8 +16,11 @@ import '../widgets/stored_image.dart';
 
 const _uuid = Uuid();
 
-/// A document in the form: either already uploaded, or picked and waiting
-/// to be uploaded on save.
+/// Draft key for the new customer form (see [DraftStore]).
+const newCustomerDraftKey = 'new_customer';
+
+/// A document in the form: either already saved on the customer, or picked
+/// in this form and uploaded when the customer is saved.
 class _DocDraft {
   _DocDraft.existing(CustomerDoc d)
     : id = d.id,
@@ -44,8 +47,17 @@ class _DocDraft {
   final CustomerDoc? existing;
   final Uint8List? bytes;
 
+  /// Set once uploaded, so "Try again" never uploads it twice.
+  String? uploadedUrl;
+
+  /// Why the last upload attempt failed.
+  String? problem;
+
   bool get isPdf => contentType == 'application/pdf';
+  bool get needsUpload => existing == null && uploadedUrl == null;
 }
+
+enum _UploadChoice { retry, saveWithout, keepEditing }
 
 String _ext(String contentType) => switch (contentType) {
   'application/pdf' => 'pdf',
@@ -60,6 +72,10 @@ String formatBytes(int b) => b >= 1024 * 1024
 
 /// Add or edit a customer, including profile photo and ID / address proofs.
 /// Pops with the saved [Customer].
+///
+/// Nothing is written until every picked file has uploaded, or the user
+/// chooses to save without the ones that failed; picked files are kept in
+/// the form so a failed upload can simply be tried again.
 class CustomerFormScreen extends StatefulWidget {
   const CustomerFormScreen({super.key, this.existing, this.initialName = ''});
 
@@ -96,8 +112,13 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   );
   late final _notes = TextEditingController(text: widget.existing?.notes ?? '');
 
+  /// Same id across retries, so uploaded files land in one folder.
+  late final String _id = widget.existing?.id ?? _uuid.v4();
+
   // Photo: a newly picked one, or the existing URL (unless removed).
   PickedMedia? _newPhoto;
+  String? _newPhotoUrl;
+  String? _photoProblem;
   bool _removePhoto = false;
 
   late final List<_DocDraft> _docs = [
@@ -105,9 +126,20 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       _DocDraft.existing(d),
   ];
 
+  /// Every file uploaded while this form was open. Whatever the saved
+  /// customer does not end up using is deleted again.
+  final _sessionUploads = <String>[];
+
   bool _saving = false;
+  bool _saved = false;
   bool _dirty = false;
   String? _status;
+
+  /// Files picked before the app was closed (for the restore notice).
+  int _restoredFiles = 0;
+  bool _restored = false;
+
+  bool get _isNew => widget.existing == null;
 
   List<TextEditingController> get _controllers => [
     _name,
@@ -123,13 +155,10 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   @override
   void initState() {
     super.initState();
+    if (_isNew) _restoreDraft();
     for (final c in _controllers) {
-      c.addListener(_markDirty);
+      c.addListener(_onTextChanged);
     }
-  }
-
-  void _markDirty() {
-    if (!_dirty && mounted) setState(() => _dirty = true);
   }
 
   @override
@@ -140,9 +169,60 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     super.dispose();
   }
 
+  void _onTextChanged() {
+    if (!_dirty && mounted) setState(() => _dirty = true);
+    _saveDraft();
+  }
+
   void _toast(String message) => ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message)));
+
+  // ── Draft (new customers only) ───────────────────────────────────────────
+
+  void _restoreDraft() {
+    final d = context.read<AppState>().drafts.read(newCustomerDraftKey);
+    if (d == null) return;
+    final text = ['name', 'phone', 'altPhone', 'address', 'notes'];
+    if (text.every((k) => (d[k] ?? '').trim().isEmpty)) return;
+    _name.text = d['name'] ?? '';
+    _phone.text = d['phone'] ?? '';
+    _altPhone.text = d['altPhone'] ?? '';
+    _address.text = d['address'] ?? '';
+    _notes.text = d['notes'] ?? '';
+    _restoredFiles = int.tryParse(d['files'] ?? '') ?? 0;
+    _restored = true;
+    _dirty = true;
+  }
+
+  void _saveDraft() {
+    if (!_isNew || _saved) return;
+    final files = (_newPhoto != null ? 1 : 0) + _docs.length;
+    context.read<AppState>().drafts.write(newCustomerDraftKey, {
+      'name': _name.text,
+      'phone': _phone.text,
+      'altPhone': _altPhone.text,
+      'address': _address.text,
+      'notes': _notes.text,
+      'files': '$files',
+    });
+  }
+
+  void _clearDraft() {
+    if (_isNew) context.read<AppState>().drafts.clear(newCustomerDraftKey);
+  }
+
+  void _startOver() {
+    for (final c in _controllers) {
+      c.clear();
+    }
+    _clearDraft();
+    setState(() {
+      _restored = false;
+      _restoredFiles = 0;
+      _dirty = false;
+    });
+  }
 
   // ── Photo ────────────────────────────────────────────────────────────────
 
@@ -185,9 +265,12 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     if (choice == 'remove') {
       setState(() {
         _newPhoto = null;
+        _newPhotoUrl = null;
+        _photoProblem = null;
         _removePhoto = true;
         _dirty = true;
       });
+      _saveDraft();
       return;
     }
     try {
@@ -195,11 +278,18 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         camera: choice == 'camera',
       );
       if (picked == null || !mounted) return;
+      if (picked.bytes.length > maxUploadBytes) {
+        _toast('That photo is larger than 10 MB. Choose a smaller one.');
+        return;
+      }
       setState(() {
         _newPhoto = picked;
-        _removePhoto = true; // replace the old one
+        _newPhotoUrl = null;
+        _photoProblem = null;
+        _removePhoto = true; // replaces the old one once saved
         _dirty = true;
       });
+      _saveDraft();
     } catch (e) {
       _toast(
         'Could not open the ${choice == 'camera' ? 'camera' : 'gallery'}.',
@@ -209,11 +299,11 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
 
   // ── Documents ────────────────────────────────────────────────────────────
 
-  Future<void> _addDocument({required bool camera, required bool file}) async {
+  Future<void> _addDocument({required bool file}) async {
     try {
       final picked = file
           ? await MediaPicker.instance.documentFile()
-          : await MediaPicker.instance.documentPhoto(camera: camera);
+          : await MediaPicker.instance.documentPhoto(camera: true);
       if (picked == null || !mounted) return;
       if (picked.bytes.length > maxUploadBytes) {
         _toast('That file is larger than 10 MB. Choose a smaller one.');
@@ -228,6 +318,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         _docs.add(_DocDraft.picked(picked, kind));
         _dirty = true;
       });
+      _saveDraft();
     } catch (e) {
       _toast('Could not open ${file ? 'files' : 'the camera'}.');
     }
@@ -235,83 +326,227 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
 
   // ── Save ─────────────────────────────────────────────────────────────────
 
-  String? _validatePhone(String? v, {required bool required}) {
-    final s = v?.trim() ?? '';
-    if (s.isEmpty) return required ? 'Required' : null;
-    final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.length < 10 || digits.length > 13) {
-      return 'Enter a valid phone number';
+  String? _altPhoneProblem(String? v) {
+    final problem = phoneProblem(v ?? '', required: false);
+    if (problem != null) return problem;
+    final alt = phoneKey(v ?? '');
+    if (alt.isNotEmpty && alt == phoneKey(_phone.text)) {
+      return 'Same as the main number';
     }
     return null;
   }
 
-  Future<void> _save() async {
-    if (!_formKey.currentState!.validate()) return;
-    final app = context.read<AppState>();
-    final phone = normalizePhone(_phone.text);
-
-    final key = phoneKey(phone);
-    final dup = app.customers.where(
-      (c) => c.id != widget.existing?.id && phoneKey(c.phone) == key,
-    );
-    if (dup.isNotEmpty) {
-      final proceed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Phone number already used'),
-          content: Text(
-            '${dup.first.name} already has this number. Save anyway?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
+  Future<bool> _confirmDuplicate(List<Customer> matches) async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Number already saved'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              matches.length == 1
+                  ? 'This number belongs to another customer:'
+                  : 'This number belongs to other customers:',
             ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Save anyway'),
+            const SizedBox(height: 8),
+            for (final c in matches.take(3))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '• ${c.name}  ${c.phone}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            const SizedBox(height: 4),
+            const Text('Save this customer anyway?'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Go back'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save anyway'),
+          ),
+        ],
+      ),
+    );
+    return proceed ?? false;
+  }
+
+  /// Uploads every picked file that is not uploaded yet. Returns how many
+  /// failed. After a connection failure the rest are skipped rather than
+  /// each waiting for its own timeout.
+  Future<int> _uploadPending() async {
+    final files = context.read<AppState>().files;
+    final docs = _docs.where((d) => d.needsUpload).toList();
+    final photo = _newPhoto != null && _newPhotoUrl == null;
+    final total = docs.length + (photo ? 1 : 0);
+    var n = 0;
+    var failed = 0;
+    String? offline;
+
+    Future<String?> upload(
+      String what,
+      String path,
+      Uint8List bytes,
+      String contentType,
+      void Function(String? problem) setProblem,
+    ) async {
+      n++;
+      if (offline != null) {
+        failed++;
+        setProblem(offline);
+        return null;
+      }
+      setState(
+        () => _status = total == 1
+            ? 'Uploading $what…'
+            : 'Uploading file $n of $total…',
+      );
+      try {
+        final url = await files.upload(
+          path: path,
+          bytes: bytes,
+          contentType: contentType,
+        );
+        _sessionUploads.add(url);
+        setProblem(null);
+        return url;
+      } on FileStoreException catch (e) {
+        failed++;
+        if (e.noConnection) offline = e.message;
+        setProblem(e.message);
+        return null;
+      }
+    }
+
+    if (photo) {
+      final p = _newPhoto!;
+      _newPhotoUrl = await upload(
+        'photo',
+        'customers/$_id/photo_${DateTime.now().millisecondsSinceEpoch}'
+            '.${_ext(p.contentType)}',
+        p.bytes,
+        p.contentType,
+        (problem) => _photoProblem = problem,
+      );
+    }
+    for (final d in docs) {
+      d.uploadedUrl = await upload(
+        d.kind,
+        'customers/$_id/docs/${d.id}.${_ext(d.contentType)}',
+        d.bytes!,
+        d.contentType,
+        (problem) => d.problem = problem,
+      );
+    }
+    if (mounted) setState(() => _status = null);
+    return failed;
+  }
+
+  Future<_UploadChoice> _askAboutFailedUploads(int failed) async {
+    final lines = [
+      if (_photoProblem != null) 'Photo: $_photoProblem',
+      for (final d in _docs)
+        if (d.problem != null) '${d.kind} (${d.fileName}): ${d.problem}',
+    ];
+    final choice = await showDialog<_UploadChoice>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          failed == 1
+              ? '1 file did not upload'
+              : '$failed files did not upload',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final l in lines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text('• $l'),
+              ),
+            const SizedBox(height: 6),
+            const Text(
+              'The customer is not saved yet. Try again, or save the details '
+              'now and add the files later from the customer page.',
             ),
           ],
         ),
-      );
-      if (proceed != true || !mounted) return;
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _UploadChoice.keepEditing),
+            child: const Text('Keep editing'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, _UploadChoice.saveWithout),
+            child: const Text('Save without them'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, _UploadChoice.retry),
+            child: const Text('Try again'),
+          ),
+        ],
+      ),
+    );
+    return choice ?? _UploadChoice.keepEditing;
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    FocusScope.of(context).unfocus();
+    if (!_formKey.currentState!.validate()) {
+      _toast('Please fix the highlighted fields.');
+      return;
     }
+    final app = context.read<AppState>();
+    final phone = normalizePhone(_phone.text);
+    final altPhone = normalizePhone(_altPhone.text);
+
+    final matches = app.customersWithPhone([
+      phone,
+      altPhone,
+    ], exceptId: widget.existing?.id);
+    if (matches.isNotEmpty && !await _confirmDuplicate(matches)) return;
+    if (!mounted) return;
 
     setState(() => _saving = true);
-    final files = app.files;
-    final e = widget.existing;
-    final id = e?.id ?? _uuid.v4();
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    final failures = <String>[];
-    final toDelete = <String>[];
-
-    // Photo.
-    var photoUrl = e?.photoUrl ?? '';
-    if (_newPhoto != null) {
-      setState(() => _status = 'Uploading photo…');
-      try {
-        final url = await files.upload(
-          path: 'customers/$id/photo_$stamp.${_ext(_newPhoto!.contentType)}',
-          bytes: _newPhoto!.bytes,
-          contentType: _newPhoto!.contentType,
-        );
-        if (photoUrl.isNotEmpty) toDelete.add(photoUrl);
-        photoUrl = url;
-      } on FileStoreException catch (err) {
-        failures.add('Photo: ${err.message}');
+    while (true) {
+      final failed = await _uploadPending();
+      if (!mounted) return;
+      if (failed == 0) break;
+      final choice = await _askAboutFailedUploads(failed);
+      if (!mounted) return;
+      if (choice == _UploadChoice.retry) continue;
+      if (choice == _UploadChoice.keepEditing) {
+        setState(() => _saving = false);
+        return;
       }
-    } else if (_removePhoto && photoUrl.isNotEmpty) {
-      toDelete.add(photoUrl);
-      photoUrl = '';
+      break; // save without the failed files
     }
 
-    // Documents.
-    final docs = <CustomerDoc>[];
-    final pending = _docs.where((d) => d.existing == null).toList();
-    var n = 0;
-    for (final d in _docs) {
-      if (d.existing != null) {
-        docs.add(
+    final e = widget.existing;
+
+    // Photo: a failed new photo keeps the old one rather than losing both.
+    final String photoUrl;
+    if (_newPhotoUrl != null) {
+      photoUrl = _newPhotoUrl!;
+    } else if (_newPhoto == null && _removePhoto) {
+      photoUrl = '';
+    } else {
+      photoUrl = e?.photoUrl ?? '';
+    }
+
+    final docs = <CustomerDoc>[
+      for (final d in _docs)
+        if (d.existing != null)
           CustomerDoc(
             id: d.id,
             kind: d.kind,
@@ -320,44 +555,26 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             contentType: d.existing!.contentType,
             sizeBytes: d.existing!.sizeBytes,
             uploadedAt: d.existing!.uploadedAt,
-          ),
-        );
-        continue;
-      }
-      n++;
-      setState(() => _status = 'Uploading document $n of ${pending.length}…');
-      try {
-        final url = await files.upload(
-          path: 'customers/$id/docs/${d.id}.${_ext(d.contentType)}',
-          bytes: d.bytes!,
-          contentType: d.contentType,
-        );
-        docs.add(
+          )
+        else if (d.uploadedUrl != null)
           CustomerDoc(
             id: d.id,
             kind: d.kind,
             fileName: d.fileName,
-            url: url,
+            url: d.uploadedUrl!,
             contentType: d.contentType,
             sizeBytes: d.sizeBytes,
             uploadedAt: DateTime.now(),
           ),
-        );
-      } on FileStoreException catch (err) {
-        failures.add('${d.kind} (${d.fileName}): ${err.message}');
-      }
-    }
-    final keptIds = docs.map((d) => d.id).toSet();
-    for (final old in e?.documents ?? const <CustomerDoc>[]) {
-      if (!keptIds.contains(old.id)) toDelete.add(old.url);
-    }
+    ];
 
+    final name = tidyText(_name.text);
     final customer = e == null
         ? Customer(
-            id: id,
-            name: _name.text.trim(),
+            id: _id,
+            name: name,
             phone: phone,
-            altPhone: normalizePhone(_altPhone.text),
+            altPhone: altPhone,
             address: _address.text.trim(),
             notes: _notes.text.trim(),
             photoUrl: photoUrl,
@@ -365,49 +582,47 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             createdAt: DateTime.now(),
           )
         : e.copyWith(
-            name: _name.text.trim(),
+            name: name,
             phone: phone,
-            altPhone: normalizePhone(_altPhone.text),
+            altPhone: altPhone,
             address: _address.text.trim(),
             notes: _notes.text.trim(),
             photoUrl: photoUrl,
             documents: docs,
           );
     await app.saveCustomer(customer);
-    for (final url in toDelete) {
-      unawaited(files.delete(url));
-    }
-    if (!mounted) return;
 
-    if (failures.isNotEmpty) {
-      // The details are saved; say plainly which files are missing.
-      await showDialog<void>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Saved, but some files did not upload'),
-          content: Text(
-            '${failures.join('\n')}\n\nOpen the customer and add them again '
-            'when the connection is better.',
-          ),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted) return;
+    // Remove files the customer no longer uses.
+    final used = {customer.photoUrl, ...docs.map((d) => d.url)};
+    final unused = <String>{
+      if (e != null && e.photoUrl.isNotEmpty) e.photoUrl,
+      ...?e?.documents.map((d) => d.url),
+      ..._sessionUploads,
+    }.difference(used);
+    for (final url in unused) {
+      unawaited(app.files.delete(url));
     }
+
+    _clearDraft();
+    _saved = true;
+    if (!mounted) return;
     Navigator.of(context).pop(customer);
   }
 
-  Future<bool> _confirmDiscard() async {
+  Future<void> _onBack() async {
+    if (_saving) {
+      _toast('Please wait, saving…');
+      return;
+    }
     final leave = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Discard changes?'),
-        content: const Text('What you entered on this screen will be lost.'),
+        title: const Text('Discard this customer?'),
+        content: Text(
+          _isNew
+              ? 'What you entered on this screen will be lost.'
+              : 'Your changes on this screen will be lost.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -420,7 +635,14 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         ],
       ),
     );
-    return leave ?? false;
+    if (leave != true || !mounted) return;
+    final files = context.read<AppState>().files;
+    for (final url in _sessionUploads) {
+      unawaited(files.delete(url));
+    }
+    _clearDraft();
+    _saved = true; // nothing left to protect
+    Navigator.of(context).pop();
   }
 
   // ── UI ───────────────────────────────────────────────────────────────────
@@ -429,19 +651,14 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return PopScope(
-      canPop: !_dirty || _saving,
-      onPopInvokedWithResult: (didPop, _) async {
-        if (didPop) return;
-        if (await _confirmDiscard() && context.mounted) {
-          Navigator.of(context).pop();
-        }
+      canPop: _saved || (!_dirty && _sessionUploads.isEmpty),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onBack();
       },
       child: Scaffold(
         appBar: AppBar(
           leading: const CloseButton(),
-          title: Text(
-            widget.existing == null ? 'New customer' : 'Edit customer',
-          ),
+          title: Text(_isNew ? 'New customer' : 'Edit customer'),
           actions: [
             TextButton(
               onPressed: _saving ? null : _save,
@@ -463,6 +680,8 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               children: [
+                if (_restored) _restoredBanner(),
+
                 // Who: photo beside the name and number.
                 FormSection(
                   icon: Icons.person_rounded,
@@ -474,12 +693,19 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                           children: [
                             TextFormField(
                               controller: _name,
+                              autofocus: _isNew && !_restored,
                               decoration: const InputDecoration(
                                 labelText: 'Name *',
                               ),
                               textCapitalization: TextCapitalization.words,
-                              validator: (v) => (v?.trim().isEmpty ?? true)
-                                  ? 'Required'
+                              textInputAction: TextInputAction.next,
+                              inputFormatters: [
+                                LengthLimitingTextInputFormatter(
+                                  CustomerLimits.name,
+                                ),
+                              ],
+                              validator: (v) => tidyText(v ?? '').isEmpty
+                                  ? 'Enter the customer name'
                                   : null,
                             ),
                             const SizedBox(height: 10),
@@ -489,8 +715,10 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                                 labelText: 'Phone *',
                               ),
                               keyboardType: TextInputType.phone,
+                              textInputAction: TextInputAction.next,
+                              inputFormatters: _phoneFormatters,
                               validator: (v) =>
-                                  _validatePhone(v, required: true),
+                                  phoneProblem(v ?? '', required: true),
                             ),
                           ],
                         );
@@ -515,6 +743,18 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                         );
                       },
                     ),
+                    if (_photoProblem != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Photo not uploaded: $_photoProblem',
+                          style: const TextStyle(
+                            color: SdColors.expired,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 10),
                     TextFormField(
                       controller: _altPhone,
@@ -523,7 +763,9 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                         prefixIcon: Icon(Icons.phone_forwarded_rounded),
                       ),
                       keyboardType: TextInputType.phone,
-                      validator: (v) => _validatePhone(v, required: false),
+                      textInputAction: TextInputAction.next,
+                      inputFormatters: _phoneFormatters,
+                      validator: _altPhoneProblem,
                     ),
                   ],
                 ),
@@ -538,6 +780,11 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                       maxLines: 3,
                       minLines: 1,
                       textCapitalization: TextCapitalization.words,
+                      inputFormatters: [
+                        LengthLimitingTextInputFormatter(
+                          CustomerLimits.address,
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -546,6 +793,9 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                       maxLines: 3,
                       minLines: 1,
                       textCapitalization: TextCapitalization.sentences,
+                      inputFormatters: [
+                        LengthLimitingTextInputFormatter(CustomerLimits.notes),
+                      ],
                     ),
                   ],
                 ),
@@ -581,10 +831,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: _saving
                                     ? null
-                                    : () => _addDocument(
-                                        camera: true,
-                                        file: false,
-                                      ),
+                                    : () => _addDocument(file: false),
                                 icon: const Icon(
                                   Icons.document_scanner_rounded,
                                   size: 18,
@@ -597,10 +844,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                               child: OutlinedButton.icon(
                                 onPressed: _saving
                                     ? null
-                                    : () => _addDocument(
-                                        camera: false,
-                                        file: true,
-                                      ),
+                                    : () => _addDocument(file: true),
                                 icon: const Icon(
                                   Icons.upload_file_rounded,
                                   size: 18,
@@ -626,6 +870,49 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     );
   }
 
+  static final _phoneFormatters = <TextInputFormatter>[
+    FilteringTextInputFormatter.allow(RegExp(r'[0-9+\-\s()]')),
+    LengthLimitingTextInputFormatter(20),
+  ];
+
+  Widget _restoredBanner() {
+    final files = _restoredFiles;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+      decoration: BoxDecoration(
+        color: SdColors.active.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: SdColors.active.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.restore_rounded, color: SdColors.active),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Restored what you typed earlier',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                if (files > 0)
+                  Text(
+                    files == 1
+                        ? 'Add the photo or document again.'
+                        : 'Add the $files photos / documents again.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
+            ),
+          ),
+          TextButton(onPressed: _startOver, child: const Text('Start over')),
+        ],
+      ),
+    );
+  }
+
   /// Portrait photo tile, like a passport photo. Tap to take, pick, or
   /// remove the photo.
   Widget _photoPicker() {
@@ -640,7 +927,11 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       image = Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.add_a_photo_rounded, color: SdColors.ember, size: 26),
+          const Icon(
+            Icons.add_a_photo_rounded,
+            color: SdColors.ember,
+            size: 26,
+          ),
           const SizedBox(height: 6),
           Text(
             'Add photo',
@@ -663,7 +954,11 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-            color: hasPhoto ? Colors.transparent : sd.line,
+            color: _photoProblem != null
+                ? SdColors.expired
+                : hasPhoto
+                ? Colors.transparent
+                : sd.line,
             width: 1.5,
           ),
         ),
@@ -721,6 +1016,14 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     } else {
       thumb = StoredImage(d.existing!.url);
     }
+    final String state;
+    if (d.existing != null) {
+      state = '';
+    } else if (d.uploadedUrl != null) {
+      state = 'uploaded';
+    } else {
+      state = 'uploads on save';
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -761,12 +1064,23 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                   [
                     d.fileName,
                     formatBytes(d.sizeBytes),
-                    if (d.existing == null) 'uploads on save',
+                    if (state.isNotEmpty) state,
                   ].join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall,
                 ),
+                if (d.problem != null)
+                  Text(
+                    'Not uploaded: ${d.problem}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: SdColors.expired,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -777,10 +1091,13 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             icon: const Icon(Icons.close_rounded),
             onPressed: _saving
                 ? null
-                : () => setState(() {
-                    _docs.remove(d);
-                    _dirty = true;
-                  }),
+                : () {
+                    setState(() {
+                      _docs.remove(d);
+                      _dirty = true;
+                    });
+                    _saveDraft();
+                  },
           ),
         ],
       ),

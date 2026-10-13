@@ -35,6 +35,11 @@ class FirestoreRepository implements Repository {
   @override
   ValueListenable<SyncState> get sync => _sync;
 
+  final _pendingCustomers = ValueNotifier<Set<String>>(const {});
+
+  @override
+  ValueListenable<Set<String>> get pendingCustomerIds => _pendingCustomers;
+
   void _updateSync() {
     _sync.value = (_customersPending || _rentalsPending)
         ? SyncState.pending
@@ -52,6 +57,13 @@ class FirestoreRepository implements Repository {
         _customersPending = snap.metadata.hasPendingWrites;
         _customersCached = snap.metadata.isFromCache;
         _updateSync();
+        final pending = {
+          for (final d in snap.docs)
+            if (d.metadata.hasPendingWrites) d.id,
+        };
+        if (!setEquals(pending, _pendingCustomers.value)) {
+          _pendingCustomers.value = pending;
+        }
         return snap.docs.map((d) => Customer.fromMap(d.id, d.data())).toList();
       });
 
@@ -101,7 +113,9 @@ class FirestoreRepository implements Repository {
       if (!_errors.isClosed) {
         _errors.add(
           e is FirebaseException && e.code == 'permission-denied'
-              ? 'Could not $what: permission denied. Please sign in again.'
+              ? 'Could not $what: the database refused it. This account may '
+                    'not be on the staff list, or the database rules were not '
+                    'deployed. Ask the owner to check.'
               : 'Could not $what. Please check your connection.',
         );
       }
@@ -113,5 +127,6 @@ class FirestoreRepository implements Repository {
   void dispose() {
     _errors.close();
     _sync.dispose();
+    _pendingCustomers.dispose();
   }
 }

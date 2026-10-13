@@ -25,10 +25,27 @@ All 22 screens are in [`docs/screenshots/`](docs/screenshots).
   with a date and note. Any return can be undone. A delivery closes when
   everything is back.
 - **Extend expiry:** every change is kept in a history.
-- **Customers:** contact details, a profile photo (camera or
-  gallery) and ID / address proofs (Aadhaar, PAN, voter ID, utility bill…)
-  as photos or PDFs up to 10 MB, plus the material they currently hold and
-  their deliveries. Customers with deliveries cannot be deleted.
+- **Customers (the main job):** name, phone, alternate phone, address,
+  notes, a profile photo (camera or gallery) and ID / address proofs
+  (Aadhaar, PAN, voter ID, utility bill…) as photos or PDFs up to 10 MB, plus
+  the material they currently hold and their deliveries. Customers with
+  deliveries cannot be deleted. Adding a customer is built to never lose
+  work:
+  - Phone numbers are checked as they are saved (digits only, 10–13
+    digits), and a number already used as anyone's main *or* alternate
+    number is pointed out by name.
+  - Nothing is written until every photo and document has uploaded. If one
+    fails, the form stays open with the files still attached: **Try again**,
+    **Save without them**, or **Keep editing**. After a connection failure
+    the remaining files are not each left to time out.
+  - What you type is kept on the phone while you work, so if Android closes
+    the app while the camera is open, the details are back next time
+    (photos need to be taken again).
+  - Every customer row shows **In cloud** or **Not in cloud yet**, and
+    whether ID proof is still missing. The customer page says when a record
+    is only on this phone.
+  - The list can be sorted A–Z or newest first; search covers name,
+    address, phone and alternate phone.
 - **Reminders on the phone:** N days before expiry (1/2/3/5/7, set in
   Settings), on the expiry day, and the day after if material is still out.
   Each reminder fires at your chosen time. Tapping one opens that delivery.
@@ -65,6 +82,8 @@ Use a **new Firebase project just for SD Centring**. Don't reuse PD Centring's.
 2. In `sd_centring/`, run `flutterfire configure --project=<project-id>`.
    This replaces `lib/firebase_options.dart`.
 3. Deploy the security rules: `firebase deploy --only firestore:rules,storage`
+   (again after every app update that changes `firestore.rules` or
+   `storage.rules`; the customer rules check the same limits as the form)
    (rules are in `firestore.rules` and `storage.rules`; both allow staff only).
 4. Add each staff member:
    - **Authentication → Users → Add user** (email + password).

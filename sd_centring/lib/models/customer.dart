@@ -104,6 +104,23 @@ class Customer {
     createdAt: createdAt,
   );
 
+  /// Search: name or address contains [query], or (3+ digits) the main or
+  /// alternate phone contains those digits.
+  bool matches(String query) {
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return true;
+    if (name.toLowerCase().contains(q) || address.toLowerCase().contains(q)) {
+      return true;
+    }
+    final digits = q.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length < 3) return false;
+    final tail = digits.length > 10
+        ? digits.substring(digits.length - 10)
+        : digits;
+    String only(String p) => p.replaceAll(RegExp(r'[^0-9]'), '');
+    return only(phone).contains(tail) || only(altPhone).contains(tail);
+  }
+
   /// Images and documents are stored as URLs to files in storage, never
   /// embedded in the record (Firestore documents are limited to 1 MB).
   Map<String, dynamic> toMap() => {
@@ -155,3 +172,27 @@ String phoneKey(String phone) {
   final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
   return digits.length > 10 ? digits.substring(digits.length - 10) : digits;
 }
+
+/// Limits shared by the form and the database rules (firestore.rules), so
+/// the app never sends a record the rules would refuse.
+abstract final class CustomerLimits {
+  static const name = 120;
+  static const phoneChars = 16;
+  static const address = 1000;
+  static const notes = 2000;
+}
+
+/// Error text for a phone field, or null when it is fine.
+String? phoneProblem(String input, {required bool required}) {
+  final s = input.trim();
+  if (s.isEmpty) return required ? 'Enter a phone number' : null;
+  if (RegExp(r'[^0-9+\-\s()]').hasMatch(s)) return 'Use digits only';
+  if (s.indexOf('+') > 0) return '"+" can only be at the start';
+  final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.length < 10) return 'Too short: enter all 10 digits';
+  if (digits.length > 13) return 'Too long: check the number';
+  return null;
+}
+
+/// Trims and collapses repeated spaces: "  Ravi   Kumar " → "Ravi Kumar".
+String tidyText(String s) => s.trim().replaceAll(RegExp(r'[ \t]+'), ' ');

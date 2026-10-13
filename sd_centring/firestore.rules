@@ -28,12 +28,28 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Optional text field: absent, or a string no longer than max.
+    function optText(d, key, max) {
+      return !(key in d) || (d[key] is string && d[key].size() <= max);
+    }
+
+    function validCustomer(d) {
+      return d.name is string
+        && d.name.size() > 0 && d.name.size() <= 120
+        && d.phone is string
+        && d.phone.size() >= 10 && d.phone.size() <= 16
+        && optText(d, 'altPhone', 16)
+        && optText(d, 'address', 1000)
+        && optText(d, 'notes', 2000)
+        && optText(d, 'photoUrl', 2048)
+        // Files live in Storage; only small records are kept here.
+        && (!('documents' in d) || (d.documents is list && d.documents.size() <= 30))
+        && d.createdAt is int;
+    }
+
     match /customers/{id} {
       allow read, delete: if isStaff();
-      allow create, update: if isStaff()
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.phone is string;
+      allow create, update: if isStaff() && validCustomer(request.resource.data);
     }
 
     match /rentals/{id} {

@@ -29,6 +29,11 @@ abstract class Repository {
   /// device that silently stops syncing is noticed the same day.
   ValueListenable<SyncState> get sync;
 
+  /// Customers whose latest change is saved on this device but not yet
+  /// confirmed by the server. Shown on each customer, so a record that
+  /// never reached the cloud is visible instead of silently local.
+  ValueListenable<Set<String>> get pendingCustomerIds;
+
   void dispose();
 }
 

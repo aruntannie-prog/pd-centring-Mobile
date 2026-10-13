@@ -39,16 +39,8 @@ class _CustomerPickerState extends State<CustomerPicker> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final q = _search.text.trim().toLowerCase();
-    final qPhone = phoneKey(q);
-    final list = app.customers
-        .where(
-          (c) =>
-              q.isEmpty ||
-              c.name.toLowerCase().contains(q) ||
-              (qPhone.length >= 3 && phoneKey(c.phone).contains(qPhone)),
-        )
-        .toList();
+    final q = _search.text.trim();
+    final list = app.customers.where((c) => c.matches(q)).toList();
 
     final theme = Theme.of(context);
     return Column(

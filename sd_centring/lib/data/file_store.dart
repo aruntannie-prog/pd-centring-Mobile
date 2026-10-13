@@ -27,8 +27,12 @@ abstract class FileStore {
 }
 
 class FileStoreException implements Exception {
-  FileStoreException(this.message);
+  FileStoreException(this.message, {this.noConnection = false});
   final String message;
+
+  /// The upload failed because the server could not be reached; other
+  /// uploads in the same batch would fail the same way.
+  final bool noConnection;
   @override
   String toString() => message;
 }
@@ -36,8 +40,9 @@ class FileStoreException implements Exception {
 /// Largest file accepted (photos are resized before this check).
 const int maxUploadBytes = 10 * 1024 * 1024;
 
-/// Firebase Storage. Uploads need a connection; they time out instead of
-/// spinning forever (a problem the PD app had on the web).
+/// Firebase Storage. Uploads need a connection; they stop with a clear
+/// error when nothing moves for 30 seconds, instead of spinning forever
+/// (a problem the PD app had on the web).
 class FirebaseFileStore implements FileStore {
   FirebaseFileStore(this._storage);
 
@@ -55,28 +60,55 @@ class FirebaseFileStore implements FileStore {
     }
     final ref = _storage.ref(path);
     final task = ref.putData(bytes, SettableMetadata(contentType: contentType));
+    // Give up when nothing has moved for a while, instead of a fixed total
+    // time: a big file on a slow connection is fine as long as it moves.
+    var lastProgress = DateTime.now();
+    var stalled = false;
     final sub = task.snapshotEvents.listen((s) {
+      lastProgress = DateTime.now();
       if (s.totalBytes > 0) onProgress?.call(s.bytesTransferred / s.totalBytes);
     }, onError: (_) {});
+    final watchdog = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (DateTime.now().difference(lastProgress) > _stallLimit) {
+        stalled = true;
+        task.cancel();
+      }
+    });
     try {
-      await task.timeout(const Duration(seconds: 90));
+      await task;
+      watchdog.cancel();
       return await ref.getDownloadURL().timeout(const Duration(seconds: 20));
     } on TimeoutException {
-      await task.cancel();
       throw FileStoreException(
-        'Upload timed out. Check the internet connection and try again.',
+        'No internet connection (upload timed out).',
+        noConnection: true,
       );
     } on FirebaseException catch (e) {
       debugPrint('FirebaseFileStore: ${e.code} ${e.message}');
-      throw FileStoreException(
-        e.code == 'unauthorized'
-            ? 'Not allowed to upload. Ask the owner to add your account to the staff list.'
-            : 'Upload failed. Please try again.',
-      );
+      if (stalled) {
+        throw FileStoreException(
+          'No internet connection (upload stopped moving).',
+          noConnection: true,
+        );
+      }
+      throw switch (e.code) {
+        'unauthorized' => FileStoreException(
+          'Not allowed to upload. Ask the owner to add your account to the '
+          'staff list.',
+        ),
+        'retry-limit-exceeded' => FileStoreException(
+          'No internet connection.',
+          noConnection: true,
+        ),
+        _ => FileStoreException('Upload failed. Please try again.'),
+      };
     } finally {
+      watchdog.cancel();
       await sub.cancel();
     }
   }
+
+  static const _stallLimit = Duration(seconds: 30);
 
   @override
   Future<void> delete(String url) async {
