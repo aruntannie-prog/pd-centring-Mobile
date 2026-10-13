@@ -75,13 +75,20 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
   }
 
   Future<void> _save() async {
-    // Check every quantity against what is still out.
+    // Check every quantity against what is still out now, including any
+    // return recorded meanwhile on another phone.
+    final app = context.read<AppState>();
+    final latest = app.rentalById(widget.rental.id);
+    if (latest == null) {
+      Navigator.pop(context);
+      return;
+    }
     _errors.clear();
     for (final item in _items) {
       final text = _qty[item.id]!.text.trim();
       if (text.isEmpty) continue;
       final q = parsePositiveQty(text);
-      final left = widget.rental.outstandingQty(item);
+      final left = latest.outstandingQty(item);
       if (q == null) {
         _errors[item.id] = 'Enter a number';
       } else if (q > left + qtyEpsilon) {
@@ -110,9 +117,6 @@ class _RecordReturnSheetState extends State<RecordReturnSheet> {
       return;
     }
     setState(() => _saving = true);
-    final app = context.read<AppState>();
-    // Re-read the latest version so a change made meanwhile isn't overwritten.
-    final latest = app.rentalById(widget.rental.id) ?? widget.rental;
     await app.addReturns(latest, entries);
     if (mounted) Navigator.pop(context);
   }

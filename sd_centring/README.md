@@ -68,16 +68,18 @@ All 22 screens are in [`docs/screenshots/`](docs/screenshots).
   - Uploading starts the moment a file is picked, while the rest of the
     form is filled in, with progress on each file. **Save** only waits for
     whatever is still uploading.
-- **Reading name and address from documents:** when an Aadhaar, PAN, voter
-  ID, driving licence or utility bill is added (photo or PDF), the name and
-  address are read and filled into empty fields, and the document type is
-  set. Whatever the document does not show is left blank (a PAN card has no
-  address). A name or address already typed is never overwritten; the value
-  on the document is offered with a **Use** button. Filled fields say
-  "From Aadhaar. Please check." ID numbers, dates of birth and phone numbers
+- **Reading the name from documents:** the ID & address proof section is
+  at the top of the customer form, so staff can add the Aadhaar, PAN, voter
+  ID, driving licence or bill first (photo or PDF). The customer's name is
+  read from it and filled in if the name field is still empty, and the
+  document type is set. A name already typed is never changed: if the
+  document shows a different name, it is offered with a **Use** button;
+  if it matches, the app just confirms it. The address is deliberately
+  **not** read, because a bill may carry a site address rather than the
+  customer's own. Addresses, ID numbers, dates of birth and phone numbers
   are never read or stored. Password-protected PDFs (e-Aadhaar) cannot be
   read; the app says so and suggests a photo or screenshot instead. In demo
-  mode, sample values are shown and labelled as such.
+  mode a sample name is shown and labelled as such.
 - **Cloud sync status:** a banner says when changes are waiting to upload, when
   the phone is offline, or when the database refuses access. A failed save is
   never silent.
@@ -119,7 +121,7 @@ replace the other's.
 
 There is no public sign-up screen. Accounts are created only by the owner.
 
-5. Turn on document reading (optional, for filling the name and address
+5. Turn on document reading (optional, for filling the customer's name
    from an uploaded Aadhaar, PAN, voter ID or bill):
    - Firebase console → **AI Logic** → **Get started** → choose the
      **Vertex AI Gemini API** (needs the pay-as-you-go *Blaze* plan; each

@@ -476,13 +476,18 @@ class RentalTile extends StatelessWidget {
                 const SizedBox(height: 3),
                 Row(
                   children: [
-                    Text(
-                      rental.dcNumber,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: showCustomer
-                            ? muted
-                            : theme.colorScheme.onSurface,
-                        fontSize: showCustomer ? 12.5 : 15,
+                    // DC numbers are free text and can be long.
+                    Flexible(
+                      child: Text(
+                        rental.dcNumber,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: showCustomer
+                              ? muted
+                              : theme.colorScheme.onSurface,
+                          fontSize: showCustomer ? 12.5 : 15,
+                        ),
                       ),
                     ),
                     Expanded(
@@ -725,24 +730,47 @@ class QuickAction extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, color: c, size: 18),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium
-                        ?.copyWith(color: c, fontSize: 13),
+          child: LayoutBuilder(
+            builder: (context, box) {
+              final text = Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium
+                    ?.copyWith(color: c, fontSize: 13),
+              );
+              // Small phones: icon above the label so "WhatsApp" fits.
+              if (box.maxWidth < 112) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
                   ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, color: c, size: 18),
+                      const SizedBox(height: 3),
+                      text,
+                    ],
+                  ),
+                );
+              }
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 11,
+                  horizontal: 8,
                 ),
-              ],
-            ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(icon, color: c, size: 18),
+                    const SizedBox(width: 6),
+                    Flexible(child: text),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ),

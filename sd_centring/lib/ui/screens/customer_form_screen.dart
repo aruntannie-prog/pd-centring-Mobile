@@ -64,7 +64,7 @@ class _DocDraft {
   Future<void>? uploading;
   double progress = 0;
 
-  /// Name and address are being read from this document.
+  /// The name is being read from this document.
   bool reading = false;
 
   bool get isPdf => contentType == 'application/pdf';
@@ -90,22 +90,18 @@ class _PhotoDraft {
 class _ReadResult {
   const _ReadResult({
     required this.kind,
-    this.filled = const [],
+    this.filledName = false,
     this.nameOnDoc,
-    this.addressOnDoc,
-    this.noAddress = false,
     this.nothingFound = false,
     this.error,
     this.sample = false,
   });
 
   final String kind;
-  final List<String> filled;
+  final bool filledName;
 
-  /// Values that differ from what is already typed; offered, not applied.
+  /// A name that differs from the one already typed; offered, not applied.
   final String? nameOnDoc;
-  final String? addressOnDoc;
-  final bool noAddress;
   final bool nothingFound;
   final String? error;
   final bool sample;
@@ -131,7 +127,7 @@ String formatBytes(int b) => b >= 1024 * 1024
 /// Pops with the saved [Customer].
 ///
 /// Photos and documents upload in the background as soon as they are
-/// picked, and documents are read for the name and address at the same
+/// picked, and documents are read for the customer's name at the same
 /// time. Saving waits only for uploads still running; the customer is
 /// written once every file is up, or when the user chooses to save without
 /// the ones that failed.
@@ -194,9 +190,9 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
 
   _ReadResult? _read;
 
-  /// Fields filled from a document: controller → (value, document type).
-  /// While the value is unchanged the field says where it came from.
-  final _filledFrom = <TextEditingController, (String, String)>{};
+  /// The name filled from a document: (value, document type). While the
+  /// name is unchanged the field says where it came from.
+  (String, String)? _nameFrom;
 
   bool _saving = false;
   bool _saved = false;
@@ -539,7 +535,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     _saveDraft();
   }
 
-  // ── Reading name and address ─────────────────────────────────────────────
+  // ── Reading the name from a document ─────────────────────────────────────
 
   Future<void> _readDocument(_DocDraft d) async {
     final reader = _app.reader;
@@ -565,35 +561,29 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     }
   }
 
-  /// Fills only empty fields; a different value already typed is kept and
-  /// the one on the document is offered instead.
+  /// Fills the name only when it is still empty. A name already typed is
+  /// never changed; if the document shows a different one, it is offered.
+  /// The address is never read: a bill may show a site address.
   void _applyDetails(_DocDraft d, DocumentDetails details) {
     if (details.kind.isNotEmpty && !d.kindChosen) d.kind = details.kind;
-    final filled = <String>[];
-    String? nameOnDoc;
-    String? addressOnDoc;
-
-    String? fill(TextEditingController c, String value, String label) {
-      if (value.isEmpty) return null;
-      final current = c.text.trim();
+    final value = details.name;
+    final current = _name.text.trim();
+    var filled = false;
+    String? offered;
+    if (value.isNotEmpty) {
       if (current.isEmpty) {
-        c.text = value;
-        _filledFrom[c] = (value, d.kind);
-        filled.add(label);
-        return null;
+        _name.text = value;
+        _nameFrom = (value, d.kind);
+        filled = true;
+      } else if (!_same(current, value)) {
+        offered = value;
       }
-      return _same(current, value) ? null : value;
     }
-
-    nameOnDoc = fill(_name, details.name, 'name');
-    addressOnDoc = fill(_address, details.address, 'address');
     setState(() {
       _read = _ReadResult(
         kind: d.kind,
-        filled: filled,
-        nameOnDoc: nameOnDoc,
-        addressOnDoc: addressOnDoc,
-        noAddress: details.address.isEmpty && details.name.isNotEmpty,
+        filledName: filled,
+        nameOnDoc: offered,
         nothingFound: details.isEmpty,
         sample: details.sample,
       );
@@ -606,25 +596,18 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     return norm(a) == norm(b);
   }
 
-  void _useFromDocument(TextEditingController c, String value) {
-    c.text = value;
+  void _useNameFromDocument(String value) {
+    _name.text = value;
     final r = _read!;
-    _filledFrom[c] = (value, r.kind);
+    _nameFrom = (value, r.kind);
     setState(() {
-      _read = _ReadResult(
-        kind: r.kind,
-        filled: [...r.filled, if (c == _name) 'name' else 'address'],
-        nameOnDoc: c == _name ? null : r.nameOnDoc,
-        addressOnDoc: c == _address ? null : r.addressOnDoc,
-        noAddress: r.noAddress,
-        sample: r.sample,
-      );
+      _read = _ReadResult(kind: r.kind, filledName: true, sample: r.sample);
     });
   }
 
-  String? _filledHint(TextEditingController c) {
-    final f = _filledFrom[c];
-    if (f == null || c.text != f.$1) return null;
+  String? _nameHint() {
+    final f = _nameFrom;
+    if (f == null || _name.text != f.$1) return null;
     return 'From ${f.$2}. Please check.';
   }
 
@@ -993,6 +976,90 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
               children: [
                 if (_restored) _restoredBanner(),
 
+                // ID first: the name can be filled in from it.
+                FormSection(
+                  icon: Icons.badge_outlined,
+                  title: 'ID & address proof',
+                  trailing: Text(
+                    _docs.isEmpty ? 'Optional' : '${_docs.length}',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                  children: [
+                    for (var i = 0; i < _docs.length; i++) ...[
+                      if (i > 0) const Divider(height: 1),
+                      _docRow(_docs[i]),
+                    ],
+                    if (_docs.isEmpty)
+                      Text(
+                        _app.reader.available
+                            ? 'Add the Aadhaar, PAN, voter ID or a bill first '
+                                  'and the name is filled in for you. Photo or '
+                                  'PDF, up to 10 MB.'
+                            : 'Aadhaar, PAN, voter ID or a utility bill. '
+                                  'Photo or PDF, up to 10 MB.',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    if (_preparing > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Preparing file…',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (_docs.any((d) => d.reading))
+                      _readingLine()
+                    else if (_read != null)
+                      _readCard(_read!),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, box) {
+                        // Short labels so they stay on one line on small
+                        // phones.
+                        final narrow = box.maxWidth < 300;
+                        return Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _addDocument(file: false),
+                                icon: const Icon(
+                                  Icons.document_scanner_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(narrow ? 'Camera' : 'Take photo'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton.icon(
+                                onPressed: _saving
+                                    ? null
+                                    : () => _addDocument(file: true),
+                                icon: const Icon(
+                                  Icons.upload_file_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(narrow ? 'File' : 'Upload file'),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
                 // Who: photo beside the name and number.
                 FormSection(
                   icon: Icons.person_rounded,
@@ -1007,7 +1074,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                               autofocus: _isNew && !_restored,
                               decoration: InputDecoration(
                                 labelText: 'Name *',
-                                helperText: _filledHint(_name),
+                                helperText: _nameHint(),
                                 helperMaxLines: 2,
                               ),
                               textCapitalization: TextCapitalization.words,
@@ -1090,10 +1157,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                   children: [
                     TextFormField(
                       controller: _address,
-                      decoration: InputDecoration(
-                        labelText: 'Address',
-                        helperText: _filledHint(_address),
-                      ),
+                      decoration: const InputDecoration(labelText: 'Address'),
                       maxLines: 3,
                       minLines: 1,
                       textCapitalization: TextCapitalization.words,
@@ -1117,90 +1181,6 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                   ],
                 ),
 
-                // ── Documents ───────────────────────────────────────────
-                FormSection(
-                  icon: Icons.badge_outlined,
-                  title: 'ID & address proof',
-                  trailing: Text(
-                    _docs.isEmpty ? 'Optional' : '${_docs.length}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  children: [
-                    for (var i = 0; i < _docs.length; i++) ...[
-                      if (i > 0) const Divider(height: 1),
-                      _docRow(_docs[i]),
-                    ],
-                    if (_docs.isEmpty)
-                      Text(
-                        _app.reader.available
-                            ? 'Aadhaar, PAN, voter ID or a utility bill. Photo '
-                                  'or PDF, up to 10 MB. The name and address '
-                                  'are filled in from it.'
-                            : 'Aadhaar, PAN, voter ID or a utility bill. '
-                                  'Photo or PDF, up to 10 MB.',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    if (_preparing > 0)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Row(
-                          children: [
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              'Preparing file…',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    if (_docs.any((d) => d.reading))
-                      _readingLine()
-                    else if (_read != null)
-                      _readCard(_read!),
-                    const SizedBox(height: 10),
-                    LayoutBuilder(
-                      builder: (context, box) {
-                        // Short labels so they stay on one line on small
-                        // phones.
-                        final narrow = box.maxWidth < 300;
-                        return Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _saving
-                                    ? null
-                                    : () => _addDocument(file: false),
-                                icon: const Icon(
-                                  Icons.document_scanner_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(narrow ? 'Camera' : 'Take photo'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _saving
-                                    ? null
-                                    : () => _addDocument(file: true),
-                                icon: const Icon(
-                                  Icons.upload_file_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(narrow ? 'File' : 'Upload file'),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  ],
-                ),
                 if (_saving) ...[
                   const SizedBox(height: 4),
                   const LinearProgressIndicator(),
@@ -1268,7 +1248,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         const SizedBox(width: 10),
         Expanded(
           child: Text(
-            'Reading name and address…',
+            'Reading the name…',
             style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(fontWeight: FontWeight.w700),
           ),
@@ -1283,51 +1263,51 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     final color = ok ? SdColors.active : SdColors.soon;
     final String title;
     if (r.error != null) {
-      title = 'Could not read the details';
+      title = 'Could not read the name';
     } else if (r.nothingFound) {
-      title = 'No name or address found on this ${r.kind}';
-    } else if (r.filled.isNotEmpty) {
-      title = 'Filled ${r.filled.join(' and ')} from ${r.kind}';
+      title = 'No name found on this ${r.kind}';
+    } else if (r.filledName) {
+      title = 'Name filled from ${r.kind}';
+    } else if (r.nameOnDoc != null) {
+      title = 'The name on the ${r.kind} is different';
     } else {
-      title = 'Read from ${r.kind}';
+      title = 'Name matches the ${r.kind}';
     }
     final notes = [
       if (r.error != null) r.error!,
-      if (r.noAddress)
-        'This document has no address; that field is left as it is.',
-      if (ok && r.filled.isNotEmpty) 'Please check the filled fields.',
+      if (r.filledName) 'Please check it.',
+      if (r.nameOnDoc != null) 'Your typed name is kept unless you tap Use.',
       if (r.sample)
-        'Demo mode: these are sample values, not read from your file.',
+        'Demo mode: this is a sample name, not read from your file.',
     ];
 
-    Widget offer(String label, String value, TextEditingController c) =>
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text.rich(
+    Widget offer(String label, String value) => Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text.rich(
+              TextSpan(
+                children: [
                   TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '$label on document: ',
-                        style: theme.textTheme.bodySmall,
-                      ),
-                      TextSpan(
-                        text: value,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ],
+                    text: '$label on document: ',
+                    style: theme.textTheme.bodySmall,
                   ),
-                ),
+                  TextSpan(
+                    text: value,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
               ),
-              TextButton(
-                onPressed: () => _useFromDocument(c, value),
-                child: const Text('Use'),
-              ),
-            ],
+            ),
           ),
-        );
+          TextButton(
+            onPressed: () => _useNameFromDocument(value),
+            child: const Text('Use'),
+          ),
+        ],
+      ),
+    );
 
     return Container(
       margin: const EdgeInsets.only(top: 10),
@@ -1377,9 +1357,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
               ),
             ],
           ),
-          if (r.nameOnDoc != null) offer('Name', r.nameOnDoc!, _name),
-          if (r.addressOnDoc != null)
-            offer('Address', r.addressOnDoc!, _address),
+          if (r.nameOnDoc != null) offer('Name', r.nameOnDoc!),
         ],
       ),
     );

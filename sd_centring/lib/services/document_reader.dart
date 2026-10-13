@@ -7,25 +7,22 @@ import 'package:flutter/foundation.dart';
 import '../config/document_ai.dart';
 import '../models/customer.dart';
 
-/// What could be read from an ID or address proof. Anything the document
-/// does not show is left empty (a PAN card has no address, for example).
+/// What could be read from an ID or address proof: the person's name and
+/// the type of document. The address is deliberately not read: a bill may
+/// show a site address rather than the customer's own.
 class DocumentDetails {
-  const DocumentDetails({
-    this.kind = '',
-    this.name = '',
-    this.address = '',
-    this.sample = false,
-  });
+  const DocumentDetails({this.kind = '', this.name = '', this.sample = false});
 
   /// One of [documentKinds], or empty when unsure.
   final String kind;
+
+  /// Empty when the document shows no readable name.
   final String name;
-  final String address;
 
   /// Demo mode: made-up values, not read from the file.
   final bool sample;
 
-  bool get isEmpty => name.isEmpty && address.isEmpty;
+  bool get isEmpty => name.isEmpty;
 }
 
 class DocumentReadException implements Exception {
@@ -35,7 +32,7 @@ class DocumentReadException implements Exception {
   String toString() => message;
 }
 
-/// Reads the name and address from a photo or PDF of a document.
+/// Reads the name from a photo or PDF of a document.
 abstract class DocumentReader {
   /// False when reading is switched off; the form then skips it.
   bool get available;
@@ -70,7 +67,6 @@ class DemoDocumentReader implements DocumentReader {
     return const DocumentDetails(
       kind: 'Aadhaar',
       name: 'Selvam Kumar',
-      address: '12, Gandhi Street, Selaiyur, Chennai, Tamil Nadu 600073',
       sample: true,
     );
   }
@@ -78,9 +74,9 @@ class DemoDocumentReader implements DocumentReader {
 
 /// Uses Gemini through Firebase AI Logic. The document goes straight from
 /// the phone to Google over Firebase's own connection: no API key is kept
-/// in the app and no server of our own is needed. Only the name, address
-/// and type of document are asked for; ID numbers are never extracted or
-/// stored.
+/// in the app and no server of our own is needed. Only the name and the type
+/// of document are asked for; addresses and ID numbers are never extracted
+/// or stored.
 class GeminiDocumentReader implements DocumentReader {
   GeminiDocumentReader()
     : _model =
@@ -97,7 +93,6 @@ class GeminiDocumentReader implements DocumentReader {
                     properties: {
                       'kind': Schema.enumString(enumValues: documentKinds),
                       'name': Schema.string(),
-                      'address': Schema.string(),
                     },
                   ),
                 ),
@@ -161,16 +156,13 @@ Return JSON with:
   statement, "Other" if it is none of the listed types.
 - name: the full name of the person the document belongs to (card holder,
   consumer, account holder), as printed. Write it in English letters; if it
-  is printed only in another script such as Tamil, transliterate it.
-- address: that person's postal address in English, on one line with parts
-  separated by ", ", ending with the PIN code if shown. Leave out relation
-  prefixes and the relative's name (S/O, D/O, W/O, C/O and the name after
-  them).
+  is printed only in another script such as Tamil, transliterate it. Not a
+  relative's name (S/O, D/O, W/O, C/O) and not a company or office name.
 
-Leave a field as an empty string when the document does not show it (a
-PAN card has no address) or it cannot be read clearly. Never guess.
-Never return ID numbers (Aadhaar, VID, PAN, voter ID, licence, consumer or
-account numbers), dates of birth, gender, phone numbers or e-mail.
+Leave name as an empty string when the document does not show it clearly.
+Never guess. Never return addresses, ID numbers (Aadhaar, VID, PAN, voter
+ID, licence, consumer or account numbers), dates of birth, gender, phone
+numbers or e-mail.
 ''';
 
 /// Rejects files that cannot be read before spending a request on them.
@@ -219,7 +211,6 @@ DocumentDetails parseDocumentDetails(String text) {
   return DocumentDetails(
     kind: documentKinds.contains(kind) ? kind : '',
     name: tidyPersonName(str(decoded['name'])),
-    address: tidyAddress(str(decoded['address'])),
   );
 }
 
@@ -236,13 +227,4 @@ String tidyPersonName(String raw) {
         return w[0] + w.substring(1).toLowerCase();
       })
       .join(' ');
-}
-
-/// One line, single spaces, no stray or doubled commas.
-String tidyAddress(String raw) {
-  var s = raw.replaceAll(RegExp(r'\s*[\r\n]+\s*'), ', ');
-  s = s.replaceAll(RegExp(r'[ \t]+'), ' ');
-  s = s.replaceAll(RegExp(r'\s*,\s*(,\s*)*'), ', ');
-  s = s.replaceAll(RegExp(r'^[,\s]+|[,\s]+$'), '');
-  return s;
 }

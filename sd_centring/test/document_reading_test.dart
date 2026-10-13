@@ -1,4 +1,4 @@
-// Reading the name and address from uploaded ID / address proofs.
+// Reading the customer's name from uploaded ID / address proofs.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -28,29 +28,27 @@ Future<void> addPdf(WidgetTester tester) async {
 void main() {
   group('reply parsing', () {
     test('reads a clean reply', () {
-      final d = parseDocumentDetails(
-        '{"kind":"Aadhaar","name":"Ravi Kumar",'
-        '"address":"12, Gandhi Street, Tambaram, Chennai 600045"}',
-      );
+      final d = parseDocumentDetails('{"kind":"Aadhaar","name":"Ravi Kumar"}');
       expect(d.kind, 'Aadhaar');
       expect(d.name, 'Ravi Kumar');
-      expect(d.address, '12, Gandhi Street, Tambaram, Chennai 600045');
+      expect(d.isEmpty, isFalse);
     });
 
-    test('missing fields stay empty (PAN has no address)', () {
-      final d = parseDocumentDetails('{"kind":"PAN","name":"RAVI KUMAR"}');
-      expect(d.name, 'Ravi Kumar');
-      expect(d.address, isEmpty);
-      expect(d.isEmpty, isFalse);
+    test('an address in the reply is ignored', () {
+      final d = parseDocumentDetails(
+        '{"kind":"Utility bill","name":"Ravi","address":"Site 4, OMR"}',
+      );
+      expect(d.name, 'Ravi');
+      // DocumentDetails has no address at all: nothing can fill it.
     });
 
     test('tolerates code fences, wrong types and unknown kinds', () {
       final d = parseDocumentDetails(
-        '```json\n{"kind":"Passport","name":42,"address":"Chennai"}\n```',
+        '```json\n{"kind":"Passport","name":42}\n```',
       );
       expect(d.kind, isEmpty);
       expect(d.name, isEmpty);
-      expect(d.address, 'Chennai');
+      expect(d.isEmpty, isTrue);
     });
 
     test('junk is reported, not crashed on', () {
@@ -71,16 +69,9 @@ void main() {
       expect(tidyPersonName(''), '');
     });
 
-    test('addresses become one tidy line', () {
-      expect(
-        tidyAddress('12, Gandhi Street,\nTambaram ,, Chennai\n- 600045 '),
-        '12, Gandhi Street, Tambaram, Chennai, - 600045',
-      );
-      expect(tidyAddress(' , '), '');
-    });
-
-    test('the prompt never asks for ID numbers to be returned', () {
-      expect(documentPrompt, contains('Never return ID numbers'));
+    test('the prompt asks for the name only', () {
+      expect(documentPrompt, contains('Never return addresses'));
+      expect(documentPrompt, contains('ID numbers'));
       expect(documentPrompt, contains('S/O'));
     });
   });
@@ -109,30 +100,33 @@ void main() {
   });
 
   group('in the form', () {
-    testWidgets('fills empty name and address and sets the type', (
+    testWidgets('the ID section comes first, before the name', (tester) async {
+      final app = await pumpForm(
+        tester,
+        reader: FakeReader(const DocumentDetails()),
+      );
+      final idTop = tester.getTopLeft(find.text('ID & address proof')).dy;
+      final nameTop = tester.getTopLeft(field('Name *')).dy;
+      expect(idTop, lessThan(nameTop));
+      expect(find.textContaining('name is filled in for you'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+      app.dispose();
+    });
+
+    testWidgets('fills an empty name and sets the type; address untouched', (
       tester,
     ) async {
       final reader = FakeReader(
-        const DocumentDetails(
-          kind: 'Utility bill',
-          name: 'Selvam Kumar',
-          address: '4, Lake View Road, Selaiyur, Chennai 600073',
-        ),
+        const DocumentDetails(kind: 'Utility bill', name: 'Selvam Kumar'),
       );
       final app = await pumpForm(tester, reader: reader);
       await addPdf(tester);
 
       expect(reader.calls, 1);
       expect(text(tester, 'Name *'), 'Selvam Kumar');
-      expect(
-        text(tester, 'Address'),
-        '4, Lake View Road, Selaiyur, Chennai 600073',
-      );
-      expect(
-        find.text('Filled name and address from Utility bill'),
-        findsOneWidget,
-      );
-      expect(find.text('From Utility bill. Please check.'), findsNWidgets(2));
+      expect(text(tester, 'Address'), isEmpty);
+      expect(find.text('Name filled from Utility bill'), findsOneWidget);
+      expect(find.text('From Utility bill. Please check.'), findsOneWidget);
       expect(find.text('Utility bill'), findsOneWidget); // the row's type
 
       await tester.enterText(field('Phone *'), '9000011111');
@@ -141,63 +135,45 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       final c = app.customers.single;
       expect(c.name, 'Selvam Kumar');
-      expect(c.address, '4, Lake View Road, Selaiyur, Chennai 600073');
+      expect(c.address, isEmpty);
       expect(c.documents.single.kind, 'Utility bill');
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
 
-    testWidgets('a document without an address leaves the address blank', (
-      tester,
-    ) async {
+    testWidgets('a typed name is never overwritten; the document name is '
+        'offered instead', (tester) async {
       final reader = FakeReader(
-        const DocumentDetails(kind: 'PAN', name: 'Ravi Kumar'),
-      );
-      final app = await pumpForm(tester, reader: reader);
-      await addPdf(tester);
-      expect(text(tester, 'Name *'), 'Ravi Kumar');
-      expect(text(tester, 'Address'), isEmpty);
-      expect(find.text('Filled name from PAN'), findsOneWidget);
-      expect(find.textContaining('has no address'), findsOneWidget);
-      await tester.pumpWidget(const SizedBox());
-      app.dispose();
-    });
-
-    testWidgets('typed details are never overwritten; the document value '
-        'is offered instead', (tester) async {
-      final reader = FakeReader(
-        const DocumentDetails(
-          kind: 'Aadhaar',
-          name: 'Selvam Kumar',
-          address: '12, Gandhi Street, Chennai',
-        ),
+        const DocumentDetails(kind: 'Aadhaar', name: 'Selvam Kumar'),
       );
       final app = await pumpForm(tester, reader: reader);
       await tester.enterText(field('Name *'), 'Selvam');
       await addPdf(tester);
 
       expect(text(tester, 'Name *'), 'Selvam');
-      expect(text(tester, 'Address'), '12, Gandhi Street, Chennai');
-      expect(find.text('Name on document: '), findsNothing); // rich text
+      expect(find.text('The name on the Aadhaar is different'), findsOneWidget);
       expect(find.textContaining('Selvam Kumar'), findsOneWidget);
       await tester.tap(find.text('Use'));
       await tester.pump();
       expect(text(tester, 'Name *'), 'Selvam Kumar');
       expect(find.text('Use'), findsNothing);
+      expect(find.text('Name filled from Aadhaar'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
 
-    testWidgets('the same name in different case is not offered', (
+    testWidgets('the same name in different case just confirms it', (
       tester,
     ) async {
       final reader = FakeReader(
-        const DocumentDetails(kind: 'Aadhaar', name: 'Selvam Kumar'),
+        const DocumentDetails(kind: 'PAN', name: 'Selvam Kumar'),
       );
       final app = await pumpForm(tester, reader: reader);
       await tester.enterText(field('Name *'), 'SELVAM KUMAR');
       await addPdf(tester);
       expect(find.text('Use'), findsNothing);
+      expect(find.text('Name matches the PAN'), findsOneWidget);
+      expect(text(tester, 'Name *'), 'SELVAM KUMAR');
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
@@ -211,7 +187,7 @@ void main() {
       );
       final app = await pumpForm(tester, reader: reader);
       await addPdf(tester);
-      expect(find.text('Could not read the details'), findsOneWidget);
+      expect(find.text('Could not read the name'), findsOneWidget);
       expect(find.text('This PDF is password-protected.'), findsOneWidget);
 
       await tester.enterText(field('Name *'), 'Selvam');
@@ -230,7 +206,7 @@ void main() {
         reader: FakeReader(const DocumentDetails(kind: 'Other')),
       );
       await addPdf(tester);
-      expect(find.text('No name or address found on this Other'), findsOne);
+      expect(find.text('No name found on this Other'), findsOneWidget);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
@@ -243,7 +219,7 @@ void main() {
       );
       final app = await pumpForm(tester, reader: reader);
       await addPdf(tester);
-      expect(find.text('Reading name and address…'), findsOneWidget);
+      expect(find.text('Reading the name…'), findsOneWidget);
       // The reading spinner keeps animating, so pump for fixed times.
       await tester.tap(find.byTooltip('Document type'));
       await tester.pump(const Duration(milliseconds: 500));
@@ -274,16 +250,17 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(text(tester, 'Name *'), isEmpty);
-      expect(find.textContaining('Filled'), findsNothing);
+      expect(find.textContaining('Name filled'), findsNothing);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
 
-    testWidgets('demo mode says its values are samples', (tester) async {
+    testWidgets('demo mode says its name is a sample', (tester) async {
       final app = await pumpForm(tester, reader: const DemoDocumentReader());
       await addPdf(tester);
       await tester.pump(const Duration(seconds: 2));
-      expect(find.textContaining('sample values'), findsOneWidget);
+      expect(find.textContaining('sample name'), findsOneWidget);
+      expect(text(tester, 'Address'), isEmpty);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
@@ -291,8 +268,8 @@ void main() {
     testWidgets('without a reader nothing is attempted', (tester) async {
       final app = await pumpForm(tester);
       await addPdf(tester);
-      expect(find.text('Reading name and address…'), findsNothing);
-      expect(find.textContaining('Filled'), findsNothing);
+      expect(find.text('Reading the name…'), findsNothing);
+      expect(find.textContaining('Name filled'), findsNothing);
       expect(documentKinds, contains('Utility bill'));
       await tester.pumpWidget(const SizedBox());
       app.dispose();

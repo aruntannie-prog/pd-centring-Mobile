@@ -54,7 +54,10 @@ class _DeliveriesScreenState extends State<DeliveriesScreen> {
         app.customerNameOf(r).toLowerCase().contains(q) ||
         r.site.toLowerCase().contains(q) ||
         r.items.any((i) => i.name.toLowerCase().contains(q)) ||
+        // Phone match only for phone-like queries, so "SD-1001" does not
+        // also list customers whose number contains 1001.
         (qPhone.length >= 4 &&
+            RegExp(r'^[0-9+\-\s()]+$').hasMatch(q) &&
             customer != null &&
             (phoneKey(customer.phone).contains(qPhone) ||
                 phoneKey(customer.altPhone).contains(qPhone)));

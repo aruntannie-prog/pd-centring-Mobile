@@ -306,10 +306,17 @@ class DeliveryDetailScreen extends StatelessWidget {
           ? rental.issuedOn
           : rental.expiresOn,
       firstDate: rental.issuedOn,
-      lastDate: addDays(app.today, 365 * 3),
+      lastDate: [
+        addDays(app.today, 365 * 3),
+        rental.expiresOn,
+      ].reduce((a, b) => a.isAfter(b) ? a : b),
     );
-    if (picked == null) return;
-    await app.changeExpiry(rental, picked);
+    if (picked == null || !context.mounted) return;
+    // Apply to the latest version: it may have changed while the picker
+    // was open.
+    final latest = app.rentalById(rental.id);
+    if (latest == null) return;
+    await app.changeExpiry(latest, picked);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Expiry set to ${formatDay(picked)}')),
@@ -343,7 +350,10 @@ class DeliveryDetailScreen extends StatelessWidget {
       ),
     );
     if (ok == true && context.mounted) {
-      await context.read<AppState>().undoReturn(rental, ret.id);
+      final app = context.read<AppState>();
+      final latest = app.rentalById(rental.id);
+      if (latest == null || !latest.returns.any((r) => r.id == ret.id)) return;
+      await app.undoReturn(latest, ret.id);
     }
   }
 
@@ -417,6 +427,16 @@ class _Hero extends StatelessWidget {
       (s, i) => s + rental.returnedQty(i.id),
     );
     final totalQty = rental.items.fold(0.0, (s, i) => s + i.qty);
+    // Pieces and feet cannot be added together: with mixed units, count
+    // items instead.
+    final units = rental.items.map((i) => i.unit).toSet();
+    final itemsOut = rental.items
+        .where((i) => rental.outstandingQty(i) > qtyEpsilon)
+        .length;
+    final outLabel = units.length <= 1
+        ? '${formatQty(totalQty - returnedQty)} of ${formatQty(totalQty)} '
+              '${units.isEmpty ? '' : units.first} out'
+        : '$itemsOut of ${rental.items.length} items out';
 
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
@@ -455,21 +475,25 @@ class _Hero extends StatelessWidget {
                   ),
                 ),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 5,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
-                  borderRadius: BorderRadius.circular(99),
-                ),
-                child: Text(
-                  '${formatQty(totalQty - returnedQty)} of ${formatQty(totalQty)} out',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    outLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ),

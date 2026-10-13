@@ -179,12 +179,20 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
   }
 
   Future<void> _pickExpiry() async {
+    final app = context.read<AppState>();
+    // Never earlier than the current expiry: an extended delivery can be
+    // further out than three years from its delivery date.
+    final last = [
+      addDays(_issuedOn, 365 * 3),
+      addDays(app.today, 365 * 3),
+      _expiresOn,
+    ].reduce((a, b) => a.isAfter(b) ? a : b);
     final picked = await showDatePicker(
       context: context,
       helpText: 'Expiry date',
       initialDate: _expiresOn.isBefore(_issuedOn) ? _issuedOn : _expiresOn,
       firstDate: _issuedOn,
-      lastDate: addDays(_issuedOn, 365 * 3),
+      lastDate: last,
     );
     if (picked == null) return;
     setState(() {
@@ -193,9 +201,10 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
     });
   }
 
-  String? _validateItems() {
+  /// Checks items against the latest saved delivery (returns may have been
+  /// recorded since this form opened, here or on another phone).
+  String? _validateItems(Rental? existing) {
     if (_items.isEmpty) return 'Add at least one item';
-    final existing = widget.existing;
     for (final d in _items) {
       if (d.name.text.trim().isEmpty) return 'Every item needs a name';
       final q = parsePositiveQty(d.qty.text);
@@ -224,17 +233,43 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
     setState(
       () => _customerError = _customer == null ? 'Choose a customer' : null,
     );
+    final e = widget.existing;
+    final latest = e == null ? null : app.rentalById(e.id);
+    if (e != null && latest == null) {
+      _toast('This delivery was deleted on another phone.');
+      return;
+    }
     final formOk = _formKey.currentState!.validate();
-    final itemsError = _validateItems();
+    final itemsError = _validateItems(latest);
     if (!formOk || _customer == null || itemsError != null) {
       if (itemsError != null) {
         _toast(itemsError);
       }
       return;
     }
-    if (_expiresOn.isBefore(_issuedOn)) {
+    // Fields left as they were keep the latest saved value, so an Extend
+    // or edit made meanwhile is not undone.
+    final issuedOn = e != null && _issuedOn == e.issuedOn
+        ? latest!.issuedOn
+        : _issuedOn;
+    final expiresOn = e != null && _expiresOn == e.expiresOn
+        ? latest!.expiresOn
+        : _expiresOn;
+    if (expiresOn.isBefore(issuedOn)) {
       _toast('Expiry date cannot be before the delivery date');
       return;
+    }
+    if (latest != null && latest.returns.isNotEmpty) {
+      final firstReturn = latest.returns
+          .map((r) => r.date)
+          .reduce((a, b) => a.isBefore(b) ? a : b);
+      if (issuedOn.isAfter(firstReturn)) {
+        _toast(
+          'Delivery date cannot be after the first return '
+          '(${formatDay(firstReturn)})',
+        );
+        return;
+      }
     }
 
     setState(() => _saving = true);
@@ -248,8 +283,8 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
         ),
     ];
     final now = DateTime.now();
-    final e = widget.existing;
-    final latest = e == null ? null : app.rentalById(e.id) ?? e;
+    String keep(TextEditingController c, String original, String saved) =>
+        c.text.trim() == original.trim() ? saved : c.text.trim();
     final Rental rental;
     if (latest == null) {
       rental = Rental(
@@ -266,22 +301,23 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
         updatedAt: now,
       );
     } else {
+      final sameCustomer = _customer!.id == e!.customerId;
       rental = latest.copyWith(
-        dcNumber: _dc.text.trim(),
-        customerId: _customer!.id,
-        customerName: _customer!.name,
-        site: _site.text.trim(),
-        issuedOn: _issuedOn,
-        expiresOn: _expiresOn,
+        dcNumber: keep(_dc, e.dcNumber, latest.dcNumber),
+        customerId: sameCustomer ? latest.customerId : _customer!.id,
+        customerName: sameCustomer ? latest.customerName : _customer!.name,
+        site: keep(_site, e.site, latest.site),
+        issuedOn: issuedOn,
+        expiresOn: expiresOn,
         items: items,
-        notes: _notes.text.trim(),
-        expiryHistory: _expiresOn == latest.expiresOn
+        notes: keep(_notes, e.notes, latest.notes),
+        expiryHistory: expiresOn == latest.expiresOn
             ? latest.expiryHistory
             : [
                 ...latest.expiryHistory,
                 ExpiryChange(
                   from: latest.expiresOn,
-                  to: _expiresOn,
+                  to: expiresOn,
                   changedAt: now,
                 ),
               ],

@@ -98,7 +98,16 @@ class QtyStepper extends StatelessWidget {
           button(
             Icons.add_rounded,
             'More',
-            atMax ? null : () => _set(_value.floorToDouble() + 1),
+            // Never step past the maximum (e.g. 2.5 ft still out).
+            atMax
+                ? null
+                : () => _set(
+                    max == null
+                        ? _value.floorToDouble() + 1
+                        : (_value.floorToDouble() + 1)
+                              .clamp(0, max!)
+                              .toDouble(),
+                  ),
           ),
         ],
       ),
