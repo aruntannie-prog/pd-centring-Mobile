@@ -29,19 +29,22 @@ service cloud.firestore {
     }
 
     // Optional text field: absent, or a string no longer than max.
+    // Limits are well above the form's (which counts letters, not code
+    // points), so they only stop junk, never a real customer.
     function optText(d, key, max) {
       return !(key in d) || (d[key] is string && d[key].size() <= max);
     }
 
     function validCustomer(d) {
       return d.name is string
-        && d.name.size() > 0 && d.name.size() <= 120
+        && d.name.size() > 0 && d.name.size() <= 400
         && d.phone is string
         && d.phone.size() >= 10 && d.phone.size() <= 16
         && optText(d, 'altPhone', 16)
-        && optText(d, 'address', 1000)
-        && optText(d, 'notes', 2000)
+        && optText(d, 'address', 4000)
+        && optText(d, 'notes', 8000)
         && optText(d, 'photoUrl', 2048)
+        && optText(d, 'photoThumbUrl', 2048)
         // Files live in Storage; only small records are kept here.
         && (!('documents' in d) || (d.documents is list && d.documents.size() <= 30))
         && d.createdAt is int;

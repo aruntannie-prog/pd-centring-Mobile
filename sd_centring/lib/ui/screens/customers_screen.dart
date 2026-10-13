@@ -120,7 +120,8 @@ class _CustomersScreenState extends State<CustomersScreen> {
                         padding: const EdgeInsets.fromLTRB(16, 10, 16, 110),
                         itemCount: list.length,
                         separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (_, i) => _CustomerRow(list[i]),
+                        itemBuilder: (_, i) =>
+                            _CustomerRow(list[i], key: ValueKey(list[i].id)),
                       ),
               ),
             ],
@@ -132,7 +133,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
 }
 
 class _CustomerRow extends StatelessWidget {
-  const _CustomerRow(this.customer);
+  const _CustomerRow(this.customer, {super.key});
 
   final Customer customer;
 
@@ -167,7 +168,7 @@ class _CustomerRow extends StatelessWidget {
       onTap: () => CustomerDetailScreen.open(context, customer.id),
       child: Row(
         children: [
-          InitialsAvatar(customer.name, size: 48, photoUrl: customer.photoUrl),
+          InitialsAvatar(customer.name, size: 48, photoUrl: customer.avatarUrl),
           const SizedBox(width: 14),
           Expanded(
             child: Column(

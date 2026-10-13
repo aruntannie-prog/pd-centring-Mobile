@@ -353,17 +353,7 @@ class InitialsAvatar extends StatelessWidget {
         ? '?'
         : words.take(2).map((w) => w.characters.first.toUpperCase()).join();
     final color = _palette[name.hashCode.abs() % _palette.length];
-    if (photoUrl.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(size * 0.32),
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: StoredImage(photoUrl),
-        ),
-      );
-    }
-    return Container(
+    final letters = Container(
       width: size,
       height: size,
       alignment: Alignment.center,
@@ -378,6 +368,22 @@ class InitialsAvatar extends StatelessWidget {
           fontWeight: FontWeight.w800,
           fontSize: size * 0.36,
           letterSpacing: -0.3,
+        ),
+      ),
+    );
+    if (photoUrl.isEmpty) return letters;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size * 0.32),
+      child: SizedBox(
+        width: size,
+        height: size,
+        // Keyed by URL so a reused row never shows the previous face, and
+        // falls back to the initials when the photo cannot load (offline).
+        child: StoredImage(
+          photoUrl,
+          key: ValueKey(photoUrl),
+          decodeSize: size,
+          error: letters,
         ),
       ),
     );

@@ -38,6 +38,9 @@ abstract class Repository {
 }
 
 enum SyncState {
+  /// Just started; the server has not answered yet.
+  connecting,
+
   /// Everything on this device is confirmed by the server.
   synced,
 

@@ -56,6 +56,28 @@ All 22 screens are in [`docs/screenshots/`](docs/screenshots).
   You press Send in WhatsApp. The app records when the last reminder was
   sent. This uses WhatsApp's free click-to-chat links, so it needs no API,
   server or cost, and carries no risk of the number being banned.
+- **Photos and documents:**
+  - Every image is made smaller on the phone before upload, without
+    visible loss: profile photos to 1024 px (about 100–250 KB), photos of
+    ID cards and bills to 2000 px (about 300–700 KB instead of 3–8 MB from
+    the camera), JPEG quality 82–85, the phone's rotation applied. Images
+    already small are left untouched. A 256 px thumbnail of the profile
+    photo is stored for lists.
+  - PDFs are uploaded exactly as they are (up to 10 MB): shrinking a PDF
+    means re-rendering it, which would blur the text.
+  - Uploading starts the moment a file is picked, while the rest of the
+    form is filled in, with progress on each file. **Save** only waits for
+    whatever is still uploading.
+- **Reading name and address from documents:** when an Aadhaar, PAN, voter
+  ID, driving licence or utility bill is added (photo or PDF), the name and
+  address are read and filled into empty fields, and the document type is
+  set. Whatever the document does not show is left blank (a PAN card has no
+  address). A name or address already typed is never overwritten; the value
+  on the document is offered with a **Use** button. Filled fields say
+  "From Aadhaar. Please check." ID numbers, dates of birth and phone numbers
+  are never read or stored. Password-protected PDFs (e-Aadhaar) cannot be
+  read; the app says so and suggests a photo or screenshot instead. In demo
+  mode, sample values are shown and labelled as such.
 - **Cloud sync status:** a banner says when changes are waiting to upload, when
   the phone is offline, or when the database refuses access. A failed save is
   never silent.
@@ -76,6 +98,10 @@ flutter run -d chrome  # browser
 
 Use a **new Firebase project just for SD Centring**. Don't reuse PD Centring's.
 
+Use a **new Firebase project for SD**, not the PD app's project: both apps
+store customer files under `customers/`, and deploying one app's rules would
+replace the other's.
+
 1. Create a Firebase project, then enable **Authentication → Email/Password**
    and **Firestore Database** (choose *production mode*, not test mode), and
    **Storage** (for customer photos and documents).
@@ -92,6 +118,16 @@ Use a **new Firebase project just for SD Centring**. Don't reuse PD Centring's.
      or write anything, even if they sign in.
 
 There is no public sign-up screen. Accounts are created only by the owner.
+
+5. Turn on document reading (optional, for filling the name and address
+   from an uploaded Aadhaar, PAN, voter ID or bill):
+   - Firebase console → **AI Logic** → **Get started** → choose the
+     **Vertex AI Gemini API** (needs the pay-as-you-go *Blaze* plan; each
+     document costs a fraction of a paisa). With this option Google does not
+     use the documents to train its models, which matters for ID cards.
+   - Recommended: also enable **App Check** so only the SD app can use it.
+   - The model and provider are set in `lib/config/document_ai.dart`; set
+     `enabled = false` there to switch the feature off.
 
 ## Business details
 

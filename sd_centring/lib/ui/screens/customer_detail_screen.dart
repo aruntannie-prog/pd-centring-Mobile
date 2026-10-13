@@ -114,8 +114,20 @@ class CustomerDetailScreen extends StatelessWidget {
                 ),
               );
               if (ok == true && context.mounted) {
-                Navigator.of(context).pop();
-                await app.deleteCustomer(customer.id);
+                final deleted = await app.deleteCustomer(customer.id);
+                if (!context.mounted) return;
+                if (deleted) {
+                  Navigator.of(context).pop();
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'This customer now has deliveries on record and '
+                        'cannot be deleted.',
+                      ),
+                    ),
+                  );
+                }
               }
             },
             itemBuilder: (_) => const [
@@ -155,7 +167,7 @@ class CustomerDetailScreen extends StatelessWidget {
                         child: InitialsAvatar(
                           customer.name,
                           size: 64,
-                          photoUrl: customer.photoUrl,
+                          photoUrl: customer.avatarUrl,
                         ),
                       ),
                       const SizedBox(width: 14),

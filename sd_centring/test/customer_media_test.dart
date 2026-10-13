@@ -79,15 +79,22 @@ void main() {
       find.widgetWithText(TextFormField, 'Phone *'),
       '9000011111',
     );
+    // Everything uploaded while the form was being filled in: photo, its
+    // list thumbnail and both documents.
+    expect(files.count, 4);
+    expect(find.textContaining('uploaded'), findsNWidgets(2));
+
     await tester.tap(find.text('SAVE'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 50));
 
     final saved = app.customers.single;
     expect(saved.photoUrl, startsWith('memory://'));
+    expect(saved.photoThumbUrl, contains('_thumb.jpg'));
+    expect(saved.avatarUrl, saved.photoThumbUrl);
     expect(saved.documents.map((d) => d.kind), ['Aadhaar', 'PAN']);
     expect(saved.documents.last.isPdf, isTrue);
-    expect(files.count, 3);
+    expect(files.count, 4);
 
     await tester.pumpWidget(const SizedBox());
     app.dispose();
@@ -138,7 +145,8 @@ void main() {
     final saved = app.customers.single;
     expect(saved.documents.single.kind, 'Aadhaar');
     expect(store.count, 1);
-    expect(store.attempts, 3); // image once, PDF twice
+    // Image once; PDF when picked and again at each save.
+    expect(store.attempts, 4);
     await tester.pumpWidget(const SizedBox());
     app.dispose();
   });
@@ -146,7 +154,7 @@ void main() {
   testWidgets('try again uploads the file once the connection is back', (
     tester,
   ) async {
-    final store = FlakyStore(failures: 1);
+    final store = FlakyStore(failures: 2); // when picked, and first save
     final app = await pumpForm(tester, files: store);
     await tester.tap(find.text('Upload file'));
     await tester.pumpAndSettle();
@@ -167,11 +175,38 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(app.customers.single.documents.single.isPdf, isTrue);
     expect(store.count, 1);
+    expect(store.attempts, 3);
     await tester.pumpWidget(const SizedBox());
     app.dispose();
   });
 
-  testWidgets('after a connection failure the other files are not tried', (
+  testWidgets('a file that failed when picked is retried on save', (
+    tester,
+  ) async {
+    final store = FlakyStore(failures: 1);
+    final app = await pumpForm(tester, files: store);
+    await tester.tap(find.text('Upload file'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Not uploaded'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Name *'),
+      'Selvam',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Phone *'),
+      '9000011111',
+    );
+    await tester.tap(find.text('SAVE'));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    // The connection came back: no dialog, just saved.
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(app.customers.single.documents, hasLength(1));
+    await tester.pumpWidget(const SizedBox());
+    app.dispose();
+  });
+
+  testWidgets('with no connection every file is offered to save without', (
     tester,
   ) async {
     final store = FlakyStore(failures: 100);
@@ -196,7 +231,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1));
     expect(find.text('3 files did not upload'), findsOneWidget);
-    expect(store.attempts, 1);
+    // Each tried when picked and once more on save; no thumbnail without
+    // a photo.
+    expect(store.attempts, 6);
     await tester.tap(find.text('Save without them'));
     await tester.pump(const Duration(seconds: 1));
     final saved = app.customers.single;
@@ -237,7 +274,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(store.count, 0);
     expect(app.customers, isEmpty);
-    expect(app.drafts.read(newCustomerDraftKey), isNull);
+    expect(app.drafts.read(newCustomerDraftKey(null)), isNull);
     await tester.pumpWidget(const SizedBox());
     app.dispose();
   });

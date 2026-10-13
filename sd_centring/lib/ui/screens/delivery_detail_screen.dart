@@ -159,7 +159,7 @@ class DeliveryDetailScreen extends StatelessWidget {
                   InitialsAvatar(
                     app.customerNameOf(rental),
                     size: 48,
-                    photoUrl: customer?.photoUrl ?? '',
+                    photoUrl: customer?.avatarUrl ?? '',
                   ),
                   const SizedBox(width: 14),
                   Expanded(

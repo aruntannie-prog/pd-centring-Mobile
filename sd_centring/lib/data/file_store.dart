@@ -22,6 +22,9 @@ abstract class FileStore {
   /// Best effort: a failed delete only leaves an orphaned file behind.
   Future<void> delete(String url);
 
+  /// Deletes everything under [path] (a customer's folder). Best effort.
+  Future<void> deleteFolder(String path);
+
   /// Bytes for `memory://` URLs (demo mode); null for real URLs.
   Uint8List? memoryBytes(String url) => null;
 }
@@ -59,7 +62,14 @@ class FirebaseFileStore implements FileStore {
       throw FileStoreException('File is larger than 10 MB.');
     }
     final ref = _storage.ref(path);
-    final task = ref.putData(bytes, SettableMetadata(contentType: contentType));
+    // Every upload gets a new path, so browsers may cache it for good.
+    final task = ref.putData(
+      bytes,
+      SettableMetadata(
+        contentType: contentType,
+        cacheControl: 'private, max-age=31536000',
+      ),
+    );
     // Give up when nothing has moved for a while, instead of a fixed total
     // time: a big file on a slow connection is fine as long as it moves.
     var lastProgress = DateTime.now();
@@ -77,7 +87,13 @@ class FirebaseFileStore implements FileStore {
     try {
       await task;
       watchdog.cancel();
-      return await ref.getDownloadURL().timeout(const Duration(seconds: 20));
+      try {
+        return await ref.getDownloadURL().timeout(const Duration(seconds: 20));
+      } catch (_) {
+        // Uploaded but unusable without its link: don't leave it behind.
+        unawaited(ref.delete().catchError((Object _) {}));
+        rethrow;
+      }
     } on TimeoutException {
       throw FileStoreException(
         'No internet connection (upload timed out).',
@@ -93,8 +109,8 @@ class FirebaseFileStore implements FileStore {
       }
       throw switch (e.code) {
         'unauthorized' => FileStoreException(
-          'Not allowed to upload. Ask the owner to add your account to the '
-          'staff list.',
+          'Upload refused. This account may not be on the staff list, or '
+          'the file is not an image or PDF under 10 MB.',
         ),
         'retry-limit-exceeded' => FileStoreException(
           'No internet connection.',
@@ -102,6 +118,9 @@ class FirebaseFileStore implements FileStore {
         ),
         _ => FileStoreException('Upload failed. Please try again.'),
       };
+    } catch (e) {
+      debugPrint('FirebaseFileStore: unexpected upload error: $e');
+      throw FileStoreException('Upload failed. Please try again.');
     } finally {
       watchdog.cancel();
       await sub.cancel();
@@ -116,6 +135,23 @@ class FirebaseFileStore implements FileStore {
       await _storage.refFromURL(url).delete();
     } catch (e) {
       debugPrint('FirebaseFileStore: could not delete $url: $e');
+    }
+  }
+
+  @override
+  Future<void> deleteFolder(String path) async {
+    Future<void> clear(Reference dir) async {
+      final list = await dir.listAll();
+      await Future.wait([
+        for (final item in list.items) item.delete(),
+        for (final sub in list.prefixes) clear(sub),
+      ]);
+    }
+
+    try {
+      await clear(_storage.ref(path));
+    } catch (e) {
+      debugPrint('FirebaseFileStore: could not clear $path: $e');
     }
   }
 
@@ -147,6 +183,10 @@ class MemoryFileStore implements FileStore {
 
   @override
   Future<void> delete(String url) async => _files.remove(url);
+
+  @override
+  Future<void> deleteFolder(String path) async =>
+      _files.removeWhere((url, _) => url.contains('/$path/'));
 
   @override
   Uint8List? memoryBytes(String url) => _files[url];

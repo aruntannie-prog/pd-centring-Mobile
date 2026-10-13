@@ -97,15 +97,37 @@ List<PlannedReminder> planReminders(
   });
 
   final kept = candidates.take(limit).toList();
+  final used = <int>{};
   return [
-    for (var i = 0; i < kept.length; i++)
+    for (final c in kept)
       PlannedReminder(
-        id: i + 1,
-        rentalId: kept[i].rentalId,
-        kind: kept[i].kind,
-        fireAt: kept[i].fireAt,
-        title: kept[i].title,
-        body: kept[i].body,
+        id: _uniqueId(reminderId(c.rentalId, c.kind), used),
+        rentalId: c.rentalId,
+        kind: c.kind,
+        fireAt: c.fireAt,
+        title: c.title,
+        body: c.body,
       ),
   ];
+}
+
+/// The same delivery and kind always get the same id, so re-planning never
+/// replaces an earlier reminder still unread in the notification shade.
+/// Never 0, which the test notification uses.
+int reminderId(String rentalId, ReminderKind kind) {
+  // FNV-1a, kept to 31 bits for Android.
+  var h = 0x811c9dc5;
+  for (final c in '$rentalId|${kind.name}'.codeUnits) {
+    h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF;
+  }
+  final id = h & 0x7FFFFFFF;
+  return id == 0 ? 1 : id;
+}
+
+int _uniqueId(int id, Set<int> used) {
+  var v = id;
+  while (!used.add(v)) {
+    v = v == 0x7FFFFFFF ? 1 : v + 1;
+  }
+  return v;
 }

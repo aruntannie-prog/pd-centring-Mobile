@@ -2,12 +2,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sd_centring/data/file_store.dart';
 import 'package:sd_centring/data/memory_repository.dart';
 import 'package:sd_centring/models/customer.dart';
+import 'package:sd_centring/services/document_reader.dart';
 import 'package:sd_centring/services/media_picker.dart';
 import 'package:sd_centring/services/reminder_scheduler.dart';
 import 'package:sd_centring/state/app_state.dart';
@@ -104,6 +107,7 @@ Future<AppState> pumpForm(
   Customer? existing,
   List<Customer> others = const [],
   AppState? reuse,
+  DocumentReader reader = const NoDocumentReader(),
 }) async {
   tester.view.physicalSize = const Size(420, 1600);
   tester.view.devicePixelRatio = 1;
@@ -119,6 +123,7 @@ Future<AppState> pumpForm(
         settings: settings,
         scheduler: NoopReminderScheduler(),
         files: files ?? MemoryFileStore(),
+        reader: reader,
       );
   await tester.pumpWidget(
     MultiProvider(
@@ -134,4 +139,47 @@ Future<AppState> pumpForm(
   );
   await tester.pumpAndSettle();
   return app;
+}
+
+/// Uploads wait until [release] is called.
+class SlowStore extends MemoryFileStore {
+  final _gate = Completer<void>();
+  int started = 0;
+
+  void release() => _gate.complete();
+
+  @override
+  Future<String> upload({
+    required String path,
+    required Uint8List bytes,
+    required String contentType,
+    void Function(double progress)? onProgress,
+  }) async {
+    started++;
+    onProgress?.call(0.4);
+    await _gate.future;
+    return super.upload(path: path, bytes: bytes, contentType: contentType);
+  }
+}
+
+/// Returns [details] (or throws [error]) for every document, optionally
+/// waiting for [gate] first.
+class FakeReader implements DocumentReader {
+  FakeReader(this.details, {this.error, this.gate});
+
+  final DocumentDetails details;
+  final String? error;
+  final Completer<void>? gate;
+  int calls = 0;
+
+  @override
+  bool get available => true;
+
+  @override
+  Future<DocumentDetails> read(Uint8List bytes, String contentType) async {
+    calls++;
+    if (gate != null) await gate!.future;
+    if (error != null) throw DocumentReadException(error!);
+    return details;
+  }
 }

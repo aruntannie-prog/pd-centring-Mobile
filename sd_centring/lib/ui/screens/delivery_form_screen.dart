@@ -409,7 +409,7 @@ class _DeliveryFormScreenState extends State<DeliveryFormScreen> {
                                   )
                                 : InitialsAvatar(
                                     _customer!.name,
-                                    photoUrl: _customer!.photoUrl,
+                                    photoUrl: _customer!.avatarUrl,
                                   ),
                             const SizedBox(width: 12),
                             Expanded(

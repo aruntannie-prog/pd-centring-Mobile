@@ -53,6 +53,31 @@ class NoopReminderScheduler implements ReminderScheduler {
   Future<String?> launchRentalId() async => null;
 }
 
+/// Demo mode on a phone: notifications can be tested, but no reminders are
+/// scheduled for the sample deliveries (they would arrive every day for
+/// deliveries that do not exist). Anything left from an earlier demo run is
+/// cleared.
+class DemoReminderScheduler implements ReminderScheduler {
+  DemoReminderScheduler(this.inner);
+
+  final ReminderScheduler inner;
+
+  @override
+  bool get supported => inner.supported;
+  @override
+  Future<void> init({
+    required void Function(String rentalId) onOpenRental,
+  }) async {}
+  @override
+  Future<bool> requestPermission() => inner.requestPermission();
+  @override
+  Future<void> apply(List<PlannedReminder> plan) => inner.apply(const []);
+  @override
+  Future<void> showTest() => inner.showTest();
+  @override
+  Future<String?> launchRentalId() async => null;
+}
+
 class LocalReminderScheduler implements ReminderScheduler {
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
@@ -129,34 +154,47 @@ class LocalReminderScheduler implements ReminderScheduler {
     return false;
   }
 
+  /// Plans are applied one after another; a newer plan stops an older one
+  /// that is still being scheduled, so stale reminders never survive (for
+  /// example after signing out).
+  Future<void> _queue = Future.value();
+  int _generation = 0;
+
   @override
-  Future<void> apply(List<PlannedReminder> plan) async {
-    if (!_ready) return;
+  Future<void> apply(List<PlannedReminder> plan) {
+    final gen = ++_generation;
+    return _queue = _queue.then((_) => _apply(plan, gen));
+  }
+
+  Future<void> _apply(List<PlannedReminder> plan, int gen) async {
+    if (!_ready || gen != _generation) return;
     try {
       await _plugin.cancelAllPendingNotifications();
-      for (final r in plan) {
-        final when = tz.TZDateTime(
-          tz.local,
-          r.fireAt.year,
-          r.fireAt.month,
-          r.fireAt.day,
-          r.fireAt.hour,
-          r.fireAt.minute,
-        );
+    } catch (e) {
+      debugPrint('ReminderScheduler: cancel failed: $e');
+      return;
+    }
+    final now = DateTime.now();
+    for (final r in plan) {
+      if (gen != _generation) return; // a newer plan takes over
+      if (!r.fireAt.isAfter(now)) continue;
+      try {
         await _plugin.zonedSchedule(
           id: r.id,
           title: r.title,
           body: r.body,
-          scheduledDate: when,
+          // Same moment as planned on this phone, whatever its time zone.
+          scheduledDate: tz.TZDateTime.from(r.fireAt, tz.local),
           notificationDetails: _details,
           // Inexact is fine for a daily reminder and needs no special
           // "exact alarm" permission on Android 14+.
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
           payload: r.rentalId,
         );
+      } catch (e) {
+        // One bad entry must not stop the rest.
+        debugPrint('ReminderScheduler: could not schedule ${r.id}: $e');
       }
-    } catch (e) {
-      debugPrint('ReminderScheduler: scheduling failed: $e');
     }
   }
 

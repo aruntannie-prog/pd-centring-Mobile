@@ -230,7 +230,7 @@ void main() {
       await tester.enterText(field('Phone *'), '9000011111');
       await save(tester);
       expect(app.customers.single.address, 'Selaiyur');
-      expect(app.drafts.read(newCustomerDraftKey), isNull);
+      expect(app.drafts.read(newCustomerDraftKey(null)), isNull);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
@@ -244,7 +244,7 @@ void main() {
       await tester.pump();
       expect(find.text('Restored what you typed earlier'), findsNothing);
       expect(find.text('Selvam'), findsNothing);
-      expect(app.drafts.read(newCustomerDraftKey), isNull);
+      expect(app.drafts.read(newCustomerDraftKey(null)), isNull);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });
@@ -253,7 +253,7 @@ void main() {
       final existing = customer('c', 'Ravi', '9840012345');
       final app = await pumpForm(tester, existing: existing);
       await tester.enterText(field('Name *'), 'Ravi Kumar');
-      expect(app.drafts.read(newCustomerDraftKey), isNull);
+      expect(app.drafts.read(newCustomerDraftKey(null)), isNull);
       await save(tester);
       expect(app.customerById('c')!.name, 'Ravi Kumar');
       await tester.pumpWidget(const SizedBox());
@@ -283,7 +283,108 @@ void main() {
       final c = app.customerById('c')!;
       expect(c.photoUrl, isNot(old));
       expect(files.memoryBytes(old), isNull);
-      expect(files.count, 1);
+      expect(c.photoThumbUrl, isNotEmpty);
+      expect(files.count, 2); // new photo and its thumbnail
+      await tester.pumpWidget(const SizedBox());
+      app.dispose();
+    });
+
+    testWidgets('save waits for an upload that is still running', (
+      tester,
+    ) async {
+      final store = SlowStore();
+      final app = await pumpForm(tester, files: store);
+      await tester.tap(find.text('Upload file'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(store.started, 1); // started as soon as it was picked
+      expect(find.textContaining('uploading 40%'), findsOneWidget);
+      await fill(tester, 'Ravi', '9840012345');
+      await save(tester);
+      expect(find.text('Uploading… 40%'), findsOneWidget);
+      expect(app.customers, isEmpty);
+      store.release();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(app.customers.single.documents, hasLength(1));
+      await tester.pumpWidget(const SizedBox());
+      app.dispose();
+    });
+
+    testWidgets('a document removed while uploading leaves no file behind', (
+      tester,
+    ) async {
+      final store = SlowStore();
+      final app = await pumpForm(tester, files: store);
+      await tester.tap(find.text('Upload file'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.tap(find.byTooltip('Remove document'));
+      await tester.pump();
+      store.release();
+      await tester.pump();
+      await tester.pump();
+      expect(store.count, 0);
+      await tester.pumpWidget(const SizedBox());
+      app.dispose();
+    });
+
+    testWidgets('editing changes only what was changed on this screen', (
+      tester,
+    ) async {
+      final files = MemoryFileStore();
+      Future<String> put(String path) =>
+          files.upload(path: path, bytes: png, contentType: 'image/png');
+      final p1 = await put('customers/c/photo_1.png');
+      final d1 = CustomerDoc(
+        id: 'd1',
+        kind: 'Aadhaar',
+        fileName: 'a.png',
+        url: await put('customers/c/docs/d1.png'),
+        contentType: 'image/png',
+        sizeBytes: 1,
+        uploadedAt: DateTime(2026),
+      );
+      final original = customer(
+        'c',
+        'Ravi',
+        '9840012345',
+        address: 'Tambaram',
+        documents: [d1],
+      ).copyWith(photoUrl: p1);
+      final app = await pumpForm(tester, files: files, existing: original);
+
+      // Meanwhile another phone changes the photo, the name and adds a
+      // document.
+      final p2 = await put('customers/c/photo_2.png');
+      final d2 = CustomerDoc(
+        id: 'd2',
+        kind: 'PAN',
+        fileName: 'p.png',
+        url: await put('customers/c/docs/d2.png'),
+        contentType: 'image/png',
+        sizeBytes: 1,
+        uploadedAt: DateTime(2026),
+      );
+      await app.saveCustomer(
+        original.copyWith(
+          name: 'Ravi Kumar',
+          photoUrl: p2,
+          documents: [d1, d2],
+        ),
+      );
+      await tester.pump();
+
+      // This phone only changes the address.
+      await tester.enterText(field('Address'), 'Selaiyur');
+      await save(tester);
+
+      final c = app.customerById('c')!;
+      expect(c.address, 'Selaiyur');
+      expect(c.name, 'Ravi Kumar');
+      expect(c.photoUrl, p2);
+      expect(c.documents.map((d) => d.id), ['d1', 'd2']);
+      expect(files.memoryBytes(p2), isNotNull);
       await tester.pumpWidget(const SizedBox());
       app.dispose();
     });

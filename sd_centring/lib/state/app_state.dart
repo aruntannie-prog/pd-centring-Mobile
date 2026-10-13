@@ -9,6 +9,7 @@ import '../domain/expiry.dart';
 import '../domain/reminders.dart';
 import '../models/customer.dart';
 import '../models/rental.dart';
+import '../services/document_reader.dart';
 import '../services/reminder_scheduler.dart';
 import 'drafts.dart';
 import 'settings.dart';
@@ -27,6 +28,7 @@ class AppState extends ChangeNotifier {
     this.signOut,
     FileStore? files,
     DraftStore? drafts,
+    this.reader = const NoDocumentReader(),
     DateTime Function()? clock,
   }) : files = files ?? MemoryFileStore(),
        drafts = drafts ?? DraftStore.inMemory(),
@@ -77,6 +79,9 @@ class AppState extends ChangeNotifier {
 
   /// Half-typed forms kept on this device.
   final DraftStore drafts;
+
+  /// Reads name and address from uploaded ID / address proofs.
+  final DocumentReader reader;
 
   /// Signed-in account, shown in Settings. Null in demo mode.
   final String? accountEmail;
@@ -173,9 +178,14 @@ class AppState extends ChangeNotifier {
     // Remove their photo and documents from storage too.
     if (c != null) {
       if (c.photoUrl.isNotEmpty) unawaited(files.delete(c.photoUrl));
+      if (c.photoThumbUrl.isNotEmpty) {
+        unawaited(files.delete(c.photoThumbUrl));
+      }
       for (final d in c.documents) {
         unawaited(files.delete(d.url));
       }
+      // Also anything left over from earlier failed clean-ups.
+      unawaited(files.deleteFolder('customers/$id'));
     }
     return true;
   }
@@ -226,7 +236,8 @@ class AppState extends ChangeNotifier {
   void _changed() {
     if (_disposed) return;
     notifyListeners();
-    if (!loaded) return;
+    // Never plan reminders from data the database refused to confirm.
+    if (!loaded || _loadError != null) return;
     // Debounce: a burst of snapshot updates schedules only once.
     _rescheduleTimer?.cancel();
     _rescheduleTimer = Timer(const Duration(milliseconds: 600), () {
@@ -238,7 +249,16 @@ class AppState extends ChangeNotifier {
     debugPrint('AppState: stream error: $e');
     _customersLoaded = true;
     _rentalsLoaded = true;
-    _loadError = e.toString().contains('permission-denied')
+    final denied = e.toString().contains('permission-denied');
+    if (denied) {
+      // Cached data may belong to another account on this phone.
+      _customers = const [];
+      _customersById = const {};
+      _rentals = const [];
+    }
+    _rescheduleTimer?.cancel();
+    if (!_disposed) scheduler.apply(const []);
+    _loadError = denied
         ? 'The database refused access, so changes are NOT being saved. '
               'Ask the owner to add your account to the staff list, '
               'then sign out and in again.'

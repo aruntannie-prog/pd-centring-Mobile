@@ -106,11 +106,12 @@ class _CustomerPickerState extends State<CustomerPicker> {
                   itemBuilder: (_, i) {
                     final c = list[i];
                     return ListTile(
+                      key: ValueKey(c.id),
                       contentPadding: const EdgeInsets.symmetric(
                         horizontal: 20,
                         vertical: 2,
                       ),
-                      leading: InitialsAvatar(c.name, photoUrl: c.photoUrl),
+                      leading: InitialsAvatar(c.name, photoUrl: c.avatarUrl),
                       title: Text(c.name),
                       subtitle: Text(c.phone),
                       onTap: () => Navigator.pop(context, c),

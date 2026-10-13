@@ -15,7 +15,13 @@ import 'repository.dart';
 ///
 /// Security rules (firestore.rules) only allow signed-in users.
 class FirestoreRepository implements Repository {
-  FirestoreRepository(this._db);
+  FirestoreRepository(this._db) {
+    // If the server never answers, switch from "connecting" to "offline".
+    _connectTimer = Timer(const Duration(seconds: 9), _updateSync);
+  }
+
+  Timer? _connectTimer;
+  bool _disposed = false;
 
   final FirebaseFirestore _db;
   final _errors = StreamController<String>.broadcast();
@@ -28,9 +34,15 @@ class FirestoreRepository implements Repository {
   @override
   bool get isDemo => false;
 
-  final _sync = ValueNotifier<SyncState>(SyncState.offline);
+  final _sync = ValueNotifier<SyncState>(SyncState.connecting);
   bool _customersPending = false, _rentalsPending = false;
   bool _customersCached = true, _rentalsCached = true;
+  bool _heardFromServer = false;
+  final _started = DateTime.now();
+
+  /// Writes sent but not yet confirmed. Snapshots cannot show a pending
+  /// delete (the document is already gone from them), so count them here.
+  int _inFlight = 0;
 
   @override
   ValueListenable<SyncState> get sync => _sync;
@@ -41,11 +53,18 @@ class FirestoreRepository implements Repository {
   ValueListenable<Set<String>> get pendingCustomerIds => _pendingCustomers;
 
   void _updateSync() {
-    _sync.value = (_customersPending || _rentalsPending)
+    if (_disposed) return;
+    final cached = _customersCached || _rentalsCached;
+    if (!cached) _heardFromServer = true;
+    _sync.value = (_customersPending || _rentalsPending || _inFlight > 0)
         ? SyncState.pending
-        : (_customersCached || _rentalsCached)
-        ? SyncState.offline
-        : SyncState.synced;
+        : !cached
+        ? SyncState.synced
+        // Give the first connection a moment before saying "offline".
+        : !_heardFromServer &&
+              DateTime.now().difference(_started) < const Duration(seconds: 8)
+        ? SyncState.connecting
+        : SyncState.offline;
   }
 
   @override
@@ -108,6 +127,12 @@ class FirestoreRepository implements Repository {
   /// completes once the server confirms — which never happens offline.
   /// So we don't await it; we only watch it for errors.
   Future<void> _write(Future<void> op, String what) {
+    _inFlight++;
+    _updateSync();
+    op.whenComplete(() {
+      _inFlight--;
+      _updateSync();
+    }).ignore();
     op.catchError((Object e) {
       debugPrint('FirestoreRepository: failed to $what: $e');
       if (!_errors.isClosed) {
@@ -125,6 +150,8 @@ class FirestoreRepository implements Repository {
 
   @override
   void dispose() {
+    _disposed = true;
+    _connectTimer?.cancel();
     _errors.close();
     _sync.dispose();
     _pendingCustomers.dispose();

@@ -108,7 +108,8 @@ class AlertsScreen extends StatelessWidget {
                                     'and changes are not saved. See README to connect a database.',
                               ),
                             const SyncBanner(),
-                            if (expired.isEmpty &&
+                            if (app.loadError == null &&
+                                expired.isEmpty &&
                                 today.isEmpty &&
                                 soon.isEmpty)
                               const Padding(

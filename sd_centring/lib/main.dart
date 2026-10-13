@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'app.dart';
@@ -18,6 +20,13 @@ Future<void> main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
+    if (kIsWeb) {
+      // Browsers keep nothing by default: without this, changes made
+      // offline are lost when the tab is closed.
+      FirebaseFirestore.instance.settings = const Settings(
+        persistenceEnabled: true,
+      );
+    }
   } catch (e) {
     debugPrint('Firebase not configured, starting in demo mode: $e');
   }

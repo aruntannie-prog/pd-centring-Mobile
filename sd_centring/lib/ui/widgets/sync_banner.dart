@@ -26,7 +26,9 @@ class SyncBanner extends StatelessWidget {
     return ValueListenableBuilder<SyncState>(
       valueListenable: app.repo.sync,
       builder: (context, state, _) => switch (state) {
-        SyncState.synced || SyncState.demo => const SizedBox.shrink(),
+        SyncState.synced ||
+        SyncState.demo ||
+        SyncState.connecting => const SizedBox.shrink(),
         SyncState.pending => _banner(
           context,
           Icons.cloud_upload_outlined,
@@ -81,6 +83,11 @@ class SyncStatusTile extends StatelessWidget {
                   Icons.wifi_off,
                   SdColors.closed,
                   'Offline — showing saved data',
+                ),
+                SyncState.connecting => (
+                  Icons.cloud_sync_outlined,
+                  SdColors.closed,
+                  'Connecting…',
                 ),
                 SyncState.demo => (
                   Icons.science_outlined,

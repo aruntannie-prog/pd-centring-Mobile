@@ -67,6 +67,8 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
+    if (_busy) return;
+    setState(() => _busy = true);
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (mounted) {
@@ -76,6 +78,12 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _error = _message(e));
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not send the email. Please try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 

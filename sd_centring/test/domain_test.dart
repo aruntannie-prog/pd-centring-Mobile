@@ -229,7 +229,14 @@ void main() {
         DateTime(2026, 10, 20, 9, 30),
         DateTime(2026, 10, 21, 9, 30),
       ]);
-      expect(plan.map((p) => p.id), [1, 2, 3]);
+      // Ids are fixed per delivery and kind, so a re-plan never replaces
+      // a reminder still unread in the notification shade.
+      expect(
+        plan.map((p) => p.id),
+        plan.map((p) => reminderId(p.rentalId, p.kind)),
+      );
+      expect(plan.map((p) => p.id).toSet(), hasLength(3));
+      expect(plan.every((p) => p.id > 0 && p.id <= 0x7FFFFFFF), isTrue);
       expect(plan.first.rentalId, 'r1');
       expect(plan.first.body, contains('Murugan'));
     });

@@ -69,6 +69,12 @@ class Customer {
 
   /// Storage URL of the profile photo, or empty.
   final String photoUrl;
+
+  /// Small (256 px) copy of the photo for lists, or empty.
+  final String photoThumbUrl;
+
+  /// Best image for a small avatar.
+  String get avatarUrl => photoThumbUrl.isNotEmpty ? photoThumbUrl : photoUrl;
   final List<CustomerDoc> documents;
   final DateTime createdAt;
 
@@ -80,6 +86,7 @@ class Customer {
     this.address = '',
     this.notes = '',
     this.photoUrl = '',
+    this.photoThumbUrl = '',
     this.documents = const [],
     required this.createdAt,
   });
@@ -91,6 +98,7 @@ class Customer {
     String? address,
     String? notes,
     String? photoUrl,
+    String? photoThumbUrl,
     List<CustomerDoc>? documents,
   }) => Customer(
     id: id,
@@ -100,6 +108,7 @@ class Customer {
     address: address ?? this.address,
     notes: notes ?? this.notes,
     photoUrl: photoUrl ?? this.photoUrl,
+    photoThumbUrl: photoThumbUrl ?? this.photoThumbUrl,
     documents: documents ?? this.documents,
     createdAt: createdAt,
   );
@@ -130,6 +139,7 @@ class Customer {
     'address': address,
     'notes': notes,
     'photoUrl': photoUrl,
+    'photoThumbUrl': photoThumbUrl,
     'documents': documents.map((d) => d.toMap()).toList(),
     'createdAt': createdAt.millisecondsSinceEpoch,
   };
@@ -144,6 +154,7 @@ class Customer {
     address: _str(m['address']),
     notes: _str(m['notes']),
     photoUrl: _str(m['photoUrl']),
+    photoThumbUrl: _str(m['photoThumbUrl']),
     documents: m['documents'] is List
         ? (m['documents'] as List)
               .map(CustomerDoc.tryFromMap)

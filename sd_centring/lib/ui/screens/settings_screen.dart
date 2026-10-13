@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../config/brand.dart';
 import '../../core/dates.dart';
+import '../../data/repository.dart';
 import '../../state/app_state.dart';
 import '../../state/settings.dart';
 import '../theme.dart';
@@ -114,6 +115,15 @@ class SettingsScreen extends StatelessWidget {
               ),
               if (plan.isNotEmpty) ...[
                 SectionHeader('Upcoming reminders', count: plan.length),
+                if (app.isDemo)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                    child: Text(
+                      'Demo mode: listed here only. No notifications are sent '
+                      'for sample deliveries.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
                 SoftCard(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Column(
@@ -213,21 +223,34 @@ class SettingsScreen extends StatelessWidget {
   }
 
   Future<void> _signOut(BuildContext context, AppState app) async {
+    // Changes not yet uploaded stay queued for this account on this phone
+    // and only go up when the same person signs in here again.
+    final unsent =
+        app.repo.sync.value == SyncState.pending ||
+        app.repo.pendingCustomerIds.value.isNotEmpty;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Sign out?'),
-        content: const Text(
-          'Reminders on this phone will stop until you sign in again.',
+        title: Text(unsent ? 'Changes not uploaded yet' : 'Sign out?'),
+        content: Text(
+          unsent
+              ? 'Some changes are only on this phone. If you sign out now '
+                    'they upload only when you sign in here again. Connect '
+                    'to the internet and wait for "All changes saved to '
+                    'cloud" first.'
+              : 'Reminders on this phone will stop until you sign in again.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: Text(unsent ? 'Stay signed in' : 'Cancel'),
           ),
           FilledButton(
+            style: unsent
+                ? FilledButton.styleFrom(backgroundColor: SdColors.expired)
+                : null,
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Sign out'),
+            child: Text(unsent ? 'Sign out anyway' : 'Sign out'),
           ),
         ],
       ),

@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../data/file_store.dart';
 import '../../models/customer.dart';
+import '../../services/document_reader.dart';
+import '../../services/image_shrink.dart';
 import '../../services/media_picker.dart';
 import '../../state/app_state.dart';
 import '../theme.dart';
@@ -16,11 +18,13 @@ import '../widgets/stored_image.dart';
 
 const _uuid = Uuid();
 
-/// Draft key for the new customer form (see [DraftStore]).
-const newCustomerDraftKey = 'new_customer';
+/// Draft key for the new customer form (see [DraftStore]), per account so
+/// staff sharing a phone never see each other's half-typed customer.
+String newCustomerDraftKey(String? account) =>
+    'new_customer:${account ?? 'demo'}';
 
 /// A document in the form: either already saved on the customer, or picked
-/// in this form and uploaded when the customer is saved.
+/// in this form. Picked files start uploading straight away.
 class _DocDraft {
   _DocDraft.existing(CustomerDoc d)
     : id = d.id,
@@ -47,14 +51,64 @@ class _DocDraft {
   final CustomerDoc? existing;
   final Uint8List? bytes;
 
-  /// Set once uploaded, so "Try again" never uploads it twice.
+  /// The user chose the type by hand; reading must not change it.
+  bool kindChosen = false;
+
+  /// Set once uploaded, so nothing is ever uploaded twice.
   String? uploadedUrl;
 
   /// Why the last upload attempt failed.
   String? problem;
 
+  /// The upload in progress, if any.
+  Future<void>? uploading;
+  double progress = 0;
+
+  /// Name and address are being read from this document.
+  bool reading = false;
+
   bool get isPdf => contentType == 'application/pdf';
-  bool get needsUpload => existing == null && uploadedUrl == null;
+  bool get needsUpload =>
+      existing == null && uploadedUrl == null && uploading == null;
+}
+
+/// A newly picked profile photo, uploading in the background.
+class _PhotoDraft {
+  _PhotoDraft(this.media);
+
+  final PickedMedia media;
+  String? url;
+  String? thumbUrl;
+  String? problem;
+  Future<void>? uploading;
+  double progress = 0;
+
+  bool get needsUpload => url == null && uploading == null;
+}
+
+/// What the last document reading found, shown under the documents.
+class _ReadResult {
+  const _ReadResult({
+    required this.kind,
+    this.filled = const [],
+    this.nameOnDoc,
+    this.addressOnDoc,
+    this.noAddress = false,
+    this.nothingFound = false,
+    this.error,
+    this.sample = false,
+  });
+
+  final String kind;
+  final List<String> filled;
+
+  /// Values that differ from what is already typed; offered, not applied.
+  final String? nameOnDoc;
+  final String? addressOnDoc;
+  final bool noAddress;
+  final bool nothingFound;
+  final String? error;
+  final bool sample;
 }
 
 enum _UploadChoice { retry, saveWithout, keepEditing }
@@ -66,6 +120,9 @@ String _ext(String contentType) => switch (contentType) {
   _ => 'jpg',
 };
 
+/// Same limit as firestore.rules.
+const maxDocuments = 30;
+
 String formatBytes(int b) => b >= 1024 * 1024
     ? '${(b / (1024 * 1024)).toStringAsFixed(1)} MB'
     : '${(b / 1024).ceil()} KB';
@@ -73,9 +130,11 @@ String formatBytes(int b) => b >= 1024 * 1024
 /// Add or edit a customer, including profile photo and ID / address proofs.
 /// Pops with the saved [Customer].
 ///
-/// Nothing is written until every picked file has uploaded, or the user
-/// chooses to save without the ones that failed; picked files are kept in
-/// the form so a failed upload can simply be tried again.
+/// Photos and documents upload in the background as soon as they are
+/// picked, and documents are read for the name and address at the same
+/// time. Saving waits only for uploads still running; the customer is
+/// written once every file is up, or when the user chooses to save without
+/// the ones that failed.
 class CustomerFormScreen extends StatefulWidget {
   const CustomerFormScreen({super.key, this.existing, this.initialName = ''});
 
@@ -112,13 +171,12 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   );
   late final _notes = TextEditingController(text: widget.existing?.notes ?? '');
 
-  /// Same id across retries, so uploaded files land in one folder.
+  /// Same id for every upload, so the customer's files share one folder.
   late final String _id = widget.existing?.id ?? _uuid.v4();
 
-  // Photo: a newly picked one, or the existing URL (unless removed).
-  PickedMedia? _newPhoto;
-  String? _newPhotoUrl;
-  String? _photoProblem;
+  late final AppState _app = context.read<AppState>();
+
+  _PhotoDraft? _newPhoto;
   bool _removePhoto = false;
 
   late final List<_DocDraft> _docs = [
@@ -130,10 +188,20 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   /// customer does not end up using is deleted again.
   final _sessionUploads = <String>[];
 
+  /// Files being prepared (compressed) after picking.
+  int _preparing = 0;
+  bool _photoPreparing = false;
+
+  _ReadResult? _read;
+
+  /// Fields filled from a document: controller → (value, document type).
+  /// While the value is unchanged the field says where it came from.
+  final _filledFrom = <TextEditingController, (String, String)>{};
+
   bool _saving = false;
   bool _saved = false;
+  bool _closed = false;
   bool _dirty = false;
-  String? _status;
 
   /// Files picked before the app was closed (for the restore notice).
   int _restoredFiles = 0;
@@ -152,6 +220,9 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   String get _existingPhoto =>
       _removePhoto ? '' : widget.existing?.photoUrl ?? '';
 
+  bool get _uploading =>
+      _newPhoto?.uploading != null || _docs.any((d) => d.uploading != null);
+
   @override
   void initState() {
     super.initState();
@@ -163,6 +234,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
 
   @override
   void dispose() {
+    _closed = true;
     for (final c in _controllers) {
       c.dispose();
     }
@@ -178,10 +250,18 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(content: Text(message)));
 
+  void _refresh() {
+    if (mounted) setState(() {});
+  }
+
   // ── Draft (new customers only) ───────────────────────────────────────────
 
+  String get _draftKey => newCustomerDraftKey(_app.accountEmail);
+
   void _restoreDraft() {
-    final d = context.read<AppState>().drafts.read(newCustomerDraftKey);
+    // Opened from a search with a name typed: start from that instead.
+    if (widget.initialName.trim().isNotEmpty) return;
+    final d = _app.drafts.read(_draftKey);
     if (d == null) return;
     final text = ['name', 'phone', 'altPhone', 'address', 'notes'];
     if (text.every((k) => (d[k] ?? '').trim().isEmpty)) return;
@@ -196,9 +276,9 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   }
 
   void _saveDraft() {
-    if (!_isNew || _saved) return;
+    if (!_isNew || _saved || _closed) return;
     final files = (_newPhoto != null ? 1 : 0) + _docs.length;
-    context.read<AppState>().drafts.write(newCustomerDraftKey, {
+    _app.drafts.write(_draftKey, {
       'name': _name.text,
       'phone': _phone.text,
       'altPhone': _altPhone.text,
@@ -209,7 +289,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
   }
 
   void _clearDraft() {
-    if (_isNew) context.read<AppState>().drafts.clear(newCustomerDraftKey);
+    if (_isNew) _app.drafts.clear(_draftKey);
   }
 
   void _startOver() {
@@ -220,8 +300,117 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     setState(() {
       _restored = false;
       _restoredFiles = 0;
-      _dirty = false;
+      _dirty = _newPhoto != null || _docs.isNotEmpty;
     });
+  }
+
+  // ── Uploads (start as soon as a file is picked) ──────────────────────────
+
+  void _forget(String url) {
+    _sessionUploads.remove(url);
+    unawaited(_app.files.delete(url));
+  }
+
+  void _startPhotoUpload(_PhotoDraft p) {
+    final files = _app.files;
+    p.problem = null;
+    p.progress = 0;
+    p.uploading = () async {
+      try {
+        final stamp = DateTime.now().millisecondsSinceEpoch;
+        final url = await files.upload(
+          path: 'customers/$_id/photo_$stamp.${_ext(p.media.contentType)}',
+          bytes: p.media.bytes,
+          contentType: p.media.contentType,
+          onProgress: (v) {
+            p.progress = v;
+            _refresh();
+          },
+        );
+        _sessionUploads.add(url);
+        // A small copy for lists; if it fails, lists use the full photo.
+        String? thumbUrl;
+        final thumb = await makeThumbnail(p.media.bytes);
+        if (thumb != null) {
+          try {
+            thumbUrl = await files.upload(
+              path: 'customers/$_id/photo_${stamp}_thumb.jpg',
+              bytes: thumb,
+              contentType: 'image/jpeg',
+            );
+            _sessionUploads.add(thumbUrl);
+          } on FileStoreException {
+            thumbUrl = null;
+          }
+        }
+        if (_closed || !identical(_newPhoto, p)) {
+          _forget(url);
+          if (thumbUrl != null) _forget(thumbUrl);
+          return;
+        }
+        p.url = url;
+        p.thumbUrl = thumbUrl;
+      } on FileStoreException catch (e) {
+        p.problem = e.message;
+      } catch (e) {
+        p.problem = 'Upload failed. Please try again.';
+      } finally {
+        p.uploading = null;
+        _refresh();
+      }
+    }();
+  }
+
+  void _startDocUpload(_DocDraft d) {
+    final files = _app.files;
+    d.problem = null;
+    d.progress = 0;
+    d.uploading = () async {
+      try {
+        final url = await files.upload(
+          path: 'customers/$_id/docs/${d.id}.${_ext(d.contentType)}',
+          bytes: d.bytes!,
+          contentType: d.contentType,
+          onProgress: (v) {
+            d.progress = v;
+            _refresh();
+          },
+        );
+        _sessionUploads.add(url);
+        if (_closed || !_docs.contains(d)) {
+          _forget(url);
+          return;
+        }
+        d.uploadedUrl = url;
+      } on FileStoreException catch (e) {
+        d.problem = e.message;
+      } catch (e) {
+        d.problem = 'Upload failed. Please try again.';
+      } finally {
+        d.uploading = null;
+        _refresh();
+      }
+    }();
+  }
+
+  /// (Re)starts every upload that is not done or running.
+  void _startMissingUploads() {
+    final p = _newPhoto;
+    if (p != null && p.needsUpload) _startPhotoUpload(p);
+    for (final d in _docs) {
+      if (d.needsUpload) _startDocUpload(d);
+    }
+  }
+
+  Future<void> _waitForUploads() async {
+    while (true) {
+      final running = [
+        ?_newPhoto?.uploading,
+        for (final d in _docs) ?d.uploading,
+      ];
+      if (running.isEmpty) return;
+      await Future.wait(running);
+    }
   }
 
   // ── Photo ────────────────────────────────────────────────────────────────
@@ -263,17 +452,19 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     );
     if (choice == null || !mounted) return;
     if (choice == 'remove') {
+      final old = _newPhoto;
       setState(() {
         _newPhoto = null;
-        _newPhotoUrl = null;
-        _photoProblem = null;
         _removePhoto = true;
         _dirty = true;
       });
+      if (old?.url != null) _forget(old!.url!);
+      if (old?.thumbUrl != null) _forget(old!.thumbUrl!);
       _saveDraft();
       return;
     }
     try {
+      setState(() => _photoPreparing = true);
       final picked = await MediaPicker.instance.photo(
         camera: choice == 'camera',
       );
@@ -282,25 +473,35 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         _toast('That photo is larger than 10 MB. Choose a smaller one.');
         return;
       }
+      final old = _newPhoto;
+      final p = _PhotoDraft(picked);
       setState(() {
-        _newPhoto = picked;
-        _newPhotoUrl = null;
-        _photoProblem = null;
+        _newPhoto = p;
         _removePhoto = true; // replaces the old one once saved
         _dirty = true;
       });
+      if (old?.url != null) _forget(old!.url!);
+      if (old?.thumbUrl != null) _forget(old!.thumbUrl!);
       _saveDraft();
+      _startPhotoUpload(p);
     } catch (e) {
       _toast(
         'Could not open the ${choice == 'camera' ? 'camera' : 'gallery'}.',
       );
+    } finally {
+      if (mounted) setState(() => _photoPreparing = false);
     }
   }
 
   // ── Documents ────────────────────────────────────────────────────────────
 
   Future<void> _addDocument({required bool file}) async {
+    if (_docs.length >= maxDocuments) {
+      _toast('Up to $maxDocuments documents per customer.');
+      return;
+    }
     try {
+      setState(() => _preparing++);
       final picked = file
           ? await MediaPicker.instance.documentFile()
           : await MediaPicker.instance.documentPhoto(camera: true);
@@ -314,14 +515,117 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         (k) => !used.contains(k),
         orElse: () => 'Other',
       );
+      final d = _DocDraft.picked(picked, kind);
       setState(() {
-        _docs.add(_DocDraft.picked(picked, kind));
+        _docs.add(d);
         _dirty = true;
       });
       _saveDraft();
+      _startDocUpload(d);
+      unawaited(_readDocument(d));
     } catch (e) {
       _toast('Could not open ${file ? 'files' : 'the camera'}.');
+    } finally {
+      if (mounted) setState(() => _preparing--);
     }
+  }
+
+  void _removeDocument(_DocDraft d) {
+    setState(() {
+      _docs.remove(d);
+      _dirty = true;
+    });
+    if (d.uploadedUrl != null) _forget(d.uploadedUrl!);
+    _saveDraft();
+  }
+
+  // ── Reading name and address ─────────────────────────────────────────────
+
+  Future<void> _readDocument(_DocDraft d) async {
+    final reader = _app.reader;
+    if (!reader.available || d.bytes == null) return;
+    setState(() => d.reading = true);
+    try {
+      final details = await reader.read(d.bytes!, d.contentType);
+      if (!mounted || !_docs.contains(d)) return;
+      _applyDetails(d, details);
+    } on DocumentReadException catch (e) {
+      if (!mounted || !_docs.contains(d)) return;
+      setState(() => _read = _ReadResult(kind: d.kind, error: e.message));
+    } catch (e) {
+      if (!mounted || !_docs.contains(d)) return;
+      setState(
+        () => _read = _ReadResult(
+          kind: d.kind,
+          error: 'Could not read this document. Type the details instead.',
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => d.reading = false);
+    }
+  }
+
+  /// Fills only empty fields; a different value already typed is kept and
+  /// the one on the document is offered instead.
+  void _applyDetails(_DocDraft d, DocumentDetails details) {
+    if (details.kind.isNotEmpty && !d.kindChosen) d.kind = details.kind;
+    final filled = <String>[];
+    String? nameOnDoc;
+    String? addressOnDoc;
+
+    String? fill(TextEditingController c, String value, String label) {
+      if (value.isEmpty) return null;
+      final current = c.text.trim();
+      if (current.isEmpty) {
+        c.text = value;
+        _filledFrom[c] = (value, d.kind);
+        filled.add(label);
+        return null;
+      }
+      return _same(current, value) ? null : value;
+    }
+
+    nameOnDoc = fill(_name, details.name, 'name');
+    addressOnDoc = fill(_address, details.address, 'address');
+    setState(() {
+      _read = _ReadResult(
+        kind: d.kind,
+        filled: filled,
+        nameOnDoc: nameOnDoc,
+        addressOnDoc: addressOnDoc,
+        noAddress: details.address.isEmpty && details.name.isNotEmpty,
+        nothingFound: details.isEmpty,
+        sample: details.sample,
+      );
+    });
+  }
+
+  static bool _same(String a, String b) {
+    String norm(String s) =>
+        s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    return norm(a) == norm(b);
+  }
+
+  void _useFromDocument(TextEditingController c, String value) {
+    c.text = value;
+    final r = _read!;
+    _filledFrom[c] = (value, r.kind);
+    setState(() {
+      _read = _ReadResult(
+        kind: r.kind,
+        filled: [...r.filled, if (c == _name) 'name' else 'address'],
+        nameOnDoc: c == _name ? null : r.nameOnDoc,
+        addressOnDoc: c == _address ? null : r.addressOnDoc,
+        noAddress: r.noAddress,
+        sample: r.sample,
+      );
+    });
+  }
+
+  String? _filledHint(TextEditingController c) {
+    final f = _filledFrom[c];
+    if (f == null || c.text != f.$1) return null;
+    return 'From ${f.$2}. Please check.';
   }
 
   // ── Save ─────────────────────────────────────────────────────────────────
@@ -340,6 +644,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: const Text('Number already saved'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -378,80 +683,9 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     return proceed ?? false;
   }
 
-  /// Uploads every picked file that is not uploaded yet. Returns how many
-  /// failed. After a connection failure the rest are skipped rather than
-  /// each waiting for its own timeout.
-  Future<int> _uploadPending() async {
-    final files = context.read<AppState>().files;
-    final docs = _docs.where((d) => d.needsUpload).toList();
-    final photo = _newPhoto != null && _newPhotoUrl == null;
-    final total = docs.length + (photo ? 1 : 0);
-    var n = 0;
-    var failed = 0;
-    String? offline;
-
-    Future<String?> upload(
-      String what,
-      String path,
-      Uint8List bytes,
-      String contentType,
-      void Function(String? problem) setProblem,
-    ) async {
-      n++;
-      if (offline != null) {
-        failed++;
-        setProblem(offline);
-        return null;
-      }
-      setState(
-        () => _status = total == 1
-            ? 'Uploading $what…'
-            : 'Uploading file $n of $total…',
-      );
-      try {
-        final url = await files.upload(
-          path: path,
-          bytes: bytes,
-          contentType: contentType,
-        );
-        _sessionUploads.add(url);
-        setProblem(null);
-        return url;
-      } on FileStoreException catch (e) {
-        failed++;
-        if (e.noConnection) offline = e.message;
-        setProblem(e.message);
-        return null;
-      }
-    }
-
-    if (photo) {
-      final p = _newPhoto!;
-      _newPhotoUrl = await upload(
-        'photo',
-        'customers/$_id/photo_${DateTime.now().millisecondsSinceEpoch}'
-            '.${_ext(p.contentType)}',
-        p.bytes,
-        p.contentType,
-        (problem) => _photoProblem = problem,
-      );
-    }
-    for (final d in docs) {
-      d.uploadedUrl = await upload(
-        d.kind,
-        'customers/$_id/docs/${d.id}.${_ext(d.contentType)}',
-        d.bytes!,
-        d.contentType,
-        (problem) => d.problem = problem,
-      );
-    }
-    if (mounted) setState(() => _status = null);
-    return failed;
-  }
-
   Future<_UploadChoice> _askAboutFailedUploads(int failed) async {
     final lines = [
-      if (_photoProblem != null) 'Photo: $_photoProblem',
+      if (_newPhoto?.problem != null) 'Photo: ${_newPhoto!.problem}',
       for (final d in _docs)
         if (d.problem != null) '${d.kind} (${d.fileName}): ${d.problem}',
     ];
@@ -459,6 +693,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Text(
           failed == 1
               ? '1 file did not upload'
@@ -506,7 +741,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       _toast('Please fix the highlighted fields.');
       return;
     }
-    final app = context.read<AppState>();
+    final app = _app;
     final phone = normalizePhone(_phone.text);
     final altPhone = normalizePhone(_altPhone.text);
 
@@ -518,45 +753,61 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     if (!mounted) return;
 
     setState(() => _saving = true);
-    while (true) {
-      final failed = await _uploadPending();
-      if (!mounted) return;
-      if (failed == 0) break;
-      final choice = await _askAboutFailedUploads(failed);
-      if (!mounted) return;
-      if (choice == _UploadChoice.retry) continue;
-      if (choice == _UploadChoice.keepEditing) {
-        setState(() => _saving = false);
-        return;
+    try {
+      if (!await _finishUploads() || !mounted) return;
+      final (customer, unused) = _buildCustomer(phone, altPhone);
+      await app.saveCustomer(customer);
+      for (final url in unused) {
+        unawaited(app.files.delete(url));
       }
-      break; // save without the failed files
+      _clearDraft();
+      _saved = true;
+      if (!mounted) return;
+      Navigator.of(context).pop(customer);
+    } finally {
+      // Whatever went wrong, never leave the form stuck on "Saving…".
+      if (mounted && !_saved) setState(() => _saving = false);
     }
+  }
 
+  /// Waits for uploads and deals with failures. False: keep editing.
+  Future<bool> _finishUploads() async {
+    while (true) {
+      // Files that failed earlier get one more go automatically: the
+      // connection may be back by now.
+      _startMissingUploads();
+      _refresh();
+      await _waitForUploads();
+      if (!mounted) return false;
+      final failed =
+          (_newPhoto?.problem != null ? 1 : 0) +
+          _docs.where((d) => d.problem != null).length;
+      if (failed == 0) return true;
+      final choice = await _askAboutFailedUploads(failed);
+      if (!mounted) return false;
+      switch (choice) {
+        case _UploadChoice.retry:
+          continue;
+        case _UploadChoice.keepEditing:
+          return false;
+        case _UploadChoice.saveWithout:
+          return true;
+      }
+    }
+  }
+
+  /// The record to write, and the files it no longer uses.
+  ///
+  /// When editing, changes are applied to the latest saved version of the
+  /// customer, not the copy the form opened with: if another phone changed
+  /// the photo, a document or a field in the meantime, only what was
+  /// changed on this screen overwrites it.
+  (Customer, Set<String>) _buildCustomer(String phone, String altPhone) {
     final e = widget.existing;
-
-    // Photo: a failed new photo keeps the old one rather than losing both.
-    final String photoUrl;
-    if (_newPhotoUrl != null) {
-      photoUrl = _newPhotoUrl!;
-    } else if (_newPhoto == null && _removePhoto) {
-      photoUrl = '';
-    } else {
-      photoUrl = e?.photoUrl ?? '';
-    }
-
-    final docs = <CustomerDoc>[
+    final p = _newPhoto;
+    final newDocs = [
       for (final d in _docs)
-        if (d.existing != null)
-          CustomerDoc(
-            id: d.id,
-            kind: d.kind,
-            fileName: d.existing!.fileName,
-            url: d.existing!.url,
-            contentType: d.existing!.contentType,
-            sizeBytes: d.existing!.sizeBytes,
-            uploadedAt: d.existing!.uploadedAt,
-          )
-        else if (d.uploadedUrl != null)
+        if (d.existing == null && d.uploadedUrl != null)
           CustomerDoc(
             id: d.id,
             kind: d.kind,
@@ -567,46 +818,90 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             uploadedAt: DateTime.now(),
           ),
     ];
+    final unused = <String>{};
 
-    final name = tidyText(_name.text);
-    final customer = e == null
-        ? Customer(
-            id: _id,
-            name: name,
-            phone: phone,
-            altPhone: altPhone,
-            address: _address.text.trim(),
-            notes: _notes.text.trim(),
-            photoUrl: photoUrl,
-            documents: docs,
-            createdAt: DateTime.now(),
-          )
-        : e.copyWith(
-            name: name,
-            phone: phone,
-            altPhone: altPhone,
-            address: _address.text.trim(),
-            notes: _notes.text.trim(),
-            photoUrl: photoUrl,
-            documents: docs,
-          );
-    await app.saveCustomer(customer);
+    late final Customer customer;
+    if (e == null) {
+      final photoOk = p?.url != null;
+      customer = Customer(
+        id: _id,
+        name: tidyText(_name.text),
+        phone: phone,
+        altPhone: altPhone,
+        address: _address.text.trim(),
+        notes: _notes.text.trim(),
+        photoUrl: photoOk ? p!.url! : '',
+        photoThumbUrl: photoOk ? p!.thumbUrl ?? '' : '',
+        documents: newDocs,
+        createdAt: DateTime.now(),
+      );
+    } else {
+      final live = _app.customerById(e.id) ?? e;
+      // A field left as it was keeps the latest saved value.
+      String pick(
+        TextEditingController c,
+        String original,
+        String latest,
+        String Function(String) clean,
+      ) => c.text == original ? latest : clean(c.text);
 
-    // Remove files the customer no longer uses.
-    final used = {customer.photoUrl, ...docs.map((d) => d.url)};
-    final unused = <String>{
-      if (e != null && e.photoUrl.isNotEmpty) e.photoUrl,
-      ...?e?.documents.map((d) => d.url),
-      ..._sessionUploads,
-    }.difference(used);
-    for (final url in unused) {
-      unawaited(app.files.delete(url));
+      var photoUrl = live.photoUrl;
+      var thumbUrl = live.photoThumbUrl;
+      final photoChanged =
+          (p != null && p.url != null) || (p == null && _removePhoto);
+      if (photoChanged) {
+        unused.addAll([live.photoUrl, live.photoThumbUrl]);
+        photoUrl = p?.url ?? '';
+        thumbUrl = p?.thumbUrl ?? '';
+      }
+      // A failed new photo keeps the current one rather than losing both.
+
+      final kept = {
+        for (final d in _docs)
+          if (d.existing != null) d.id: d.kind,
+      };
+      final removed = e.documents.where((d) => !kept.containsKey(d.id));
+      final removedIds = removed.map((d) => d.id).toSet();
+      unused.addAll(removed.map((d) => d.url));
+      final docs = [
+        for (final d in live.documents)
+          if (!removedIds.contains(d.id))
+            kept[d.id] == null || kept[d.id] == d.kind
+                ? d
+                : CustomerDoc(
+                    id: d.id,
+                    kind: kept[d.id]!,
+                    fileName: d.fileName,
+                    url: d.url,
+                    contentType: d.contentType,
+                    sizeBytes: d.sizeBytes,
+                    uploadedAt: d.uploadedAt,
+                  ),
+        ...newDocs,
+      ];
+
+      customer = live.copyWith(
+        name: pick(_name, e.name, live.name, tidyText),
+        phone: pick(_phone, e.phone, live.phone, normalizePhone),
+        altPhone: pick(_altPhone, e.altPhone, live.altPhone, normalizePhone),
+        address: pick(_address, e.address, live.address, (v) => v.trim()),
+        notes: pick(_notes, e.notes, live.notes, (v) => v.trim()),
+        photoUrl: photoUrl,
+        photoThumbUrl: thumbUrl,
+        documents: docs,
+      );
     }
 
-    _clearDraft();
-    _saved = true;
-    if (!mounted) return;
-    Navigator.of(context).pop(customer);
+    final used = {
+      customer.photoUrl,
+      customer.photoThumbUrl,
+      ...customer.documents.map((d) => d.url),
+    };
+    unused
+      ..addAll(_sessionUploads)
+      ..removeAll(used)
+      ..remove('');
+    return (customer, unused);
   }
 
   Future<void> _onBack() async {
@@ -636,9 +931,10 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
       ),
     );
     if (leave != true || !mounted) return;
-    final files = context.read<AppState>().files;
-    for (final url in _sessionUploads) {
-      unawaited(files.delete(url));
+    // Uploads still running delete their own file when they finish.
+    _closed = true;
+    for (final url in [..._sessionUploads]) {
+      _forget(url);
     }
     _clearDraft();
     _saved = true; // nothing left to protect
@@ -647,11 +943,26 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
 
   // ── UI ───────────────────────────────────────────────────────────────────
 
+  String _saveLabel() {
+    if (!_saving) return 'Save customer';
+    final progress = [
+      if (_newPhoto?.uploading != null) _newPhoto!.progress,
+      for (final d in _docs)
+        if (d.uploading != null) d.progress,
+    ];
+    if (progress.isEmpty) return 'Saving…';
+    final pct = (progress.reduce((a, b) => a + b) / progress.length * 100)
+        .round();
+    return progress.length == 1
+        ? 'Uploading… $pct%'
+        : 'Uploading ${progress.length} files… $pct%';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return PopScope(
-      canPop: _saved || (!_dirty && _sessionUploads.isEmpty),
+      canPop: _saved || (!_dirty && _sessionUploads.isEmpty && !_uploading),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onBack();
       },
@@ -671,7 +982,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
           ],
         ),
         bottomNavigationBar: SaveBar(
-          label: _saving ? (_status ?? 'Saving…') : 'Save customer',
+          label: _saveLabel(),
           onPressed: _saving ? null : _save,
         ),
         body: PageWidth(
@@ -694,8 +1005,10 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                             TextFormField(
                               controller: _name,
                               autofocus: _isNew && !_restored,
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'Name *',
+                                helperText: _filledHint(_name),
+                                helperMaxLines: 2,
                               ),
                               textCapitalization: TextCapitalization.words,
                               textInputAction: TextInputAction.next,
@@ -743,11 +1056,12 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                         );
                       },
                     ),
-                    if (_photoProblem != null)
+                    if (_newPhoto?.problem != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Text(
-                          'Photo not uploaded: $_photoProblem',
+                          'Photo not uploaded: ${_newPhoto!.problem} '
+                          'It is tried again when you save.',
                           style: const TextStyle(
                             color: SdColors.expired,
                             fontSize: 12.5,
@@ -776,7 +1090,10 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                   children: [
                     TextFormField(
                       controller: _address,
-                      decoration: const InputDecoration(labelText: 'Address'),
+                      decoration: InputDecoration(
+                        labelText: 'Address',
+                        helperText: _filledHint(_address),
+                      ),
                       maxLines: 3,
                       minLines: 1,
                       textCapitalization: TextCapitalization.words,
@@ -815,10 +1132,36 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                     ],
                     if (_docs.isEmpty)
                       Text(
-                        'Aadhaar, PAN, voter ID or a utility bill. '
-                        'Photo or PDF, up to 10 MB.',
+                        _app.reader.available
+                            ? 'Aadhaar, PAN, voter ID or a utility bill. Photo '
+                                  'or PDF, up to 10 MB. The name and address '
+                                  'are filled in from it.'
+                            : 'Aadhaar, PAN, voter ID or a utility bill. '
+                                  'Photo or PDF, up to 10 MB.',
                         style: theme.textTheme.bodySmall,
                       ),
+                    if (_preparing > 0)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Row(
+                          children: [
+                            const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                            const SizedBox(width: 10),
+                            Text(
+                              'Preparing file…',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (_docs.any((d) => d.reading))
+                      _readingLine()
+                    else if (_read != null)
+                      _readCard(_read!),
                     const SizedBox(height: 10),
                     LayoutBuilder(
                       builder: (context, box) {
@@ -858,7 +1201,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                     ),
                   ],
                 ),
-                if (_saving && _status != null) ...[
+                if (_saving) ...[
                   const SizedBox(height: 4),
                   const LinearProgressIndicator(),
                 ],
@@ -913,16 +1256,146 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
     );
   }
 
+  Widget _readingLine() => Padding(
+    padding: const EdgeInsets.only(top: 10),
+    child: Row(
+      children: [
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Reading name and address…',
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _readCard(_ReadResult r) {
+    final theme = Theme.of(context);
+    final ok = r.error == null && !r.nothingFound;
+    final color = ok ? SdColors.active : SdColors.soon;
+    final String title;
+    if (r.error != null) {
+      title = 'Could not read the details';
+    } else if (r.nothingFound) {
+      title = 'No name or address found on this ${r.kind}';
+    } else if (r.filled.isNotEmpty) {
+      title = 'Filled ${r.filled.join(' and ')} from ${r.kind}';
+    } else {
+      title = 'Read from ${r.kind}';
+    }
+    final notes = [
+      if (r.error != null) r.error!,
+      if (r.noAddress)
+        'This document has no address; that field is left as it is.',
+      if (ok && r.filled.isNotEmpty) 'Please check the filled fields.',
+      if (r.sample)
+        'Demo mode: these are sample values, not read from your file.',
+    ];
+
+    Widget offer(String label, String value, TextEditingController c) =>
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$label on document: ',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      TextSpan(
+                        text: value,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => _useFromDocument(c, value),
+                child: const Text('Use'),
+              ),
+            ],
+          ),
+        );
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(
+                  ok ? Icons.auto_awesome_rounded : Icons.info_outline_rounded,
+                  size: 18,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    for (final n in notes)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(n, style: theme.textTheme.bodySmall),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Hide',
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                onPressed: () => setState(() => _read = null),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ],
+          ),
+          if (r.nameOnDoc != null) offer('Name', r.nameOnDoc!, _name),
+          if (r.addressOnDoc != null)
+            offer('Address', r.addressOnDoc!, _address),
+        ],
+      ),
+    );
+  }
+
   /// Portrait photo tile, like a passport photo. Tap to take, pick, or
   /// remove the photo.
   Widget _photoPicker() {
     final sd = context.sd;
-    final hasPhoto = _newPhoto != null || _existingPhoto.isNotEmpty;
+    final p = _newPhoto;
+    final hasPhoto = p != null || _existingPhoto.isNotEmpty;
     Widget image;
-    if (_newPhoto != null) {
-      image = Image.memory(_newPhoto!.bytes, fit: BoxFit.cover);
+    if (p != null) {
+      image = Image.memory(p.media.bytes, fit: BoxFit.cover);
     } else if (_existingPhoto.isNotEmpty) {
-      image = StoredImage(_existingPhoto);
+      image = StoredImage(_existingPhoto, decodeSize: 120);
     } else {
       image = Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -954,7 +1427,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
           side: BorderSide(
-            color: _photoProblem != null
+            color: p?.problem != null
                 ? SdColors.expired
                 : hasPhoto
                 ? Colors.transparent
@@ -971,6 +1444,20 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
               fit: StackFit.expand,
               children: [
                 image,
+                if (p?.uploading != null || _photoPreparing)
+                  Container(
+                    color: Colors.black.withValues(alpha: 0.35),
+                    alignment: Alignment.center,
+                    child: SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(
+                        value: (p?.progress ?? 0) > 0 ? p!.progress : null,
+                        strokeWidth: 3,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
                 if (hasPhoto)
                   Positioned(
                     left: 0,
@@ -1012,17 +1499,24 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
         ),
       );
     } else if (d.bytes != null) {
-      thumb = Image.memory(d.bytes!, fit: BoxFit.cover);
+      thumb = Image.memory(d.bytes!, fit: BoxFit.cover, cacheWidth: 132);
     } else {
-      thumb = StoredImage(d.existing!.url);
+      thumb = StoredImage(d.existing!.url, decodeSize: 44);
     }
     final String state;
+    final Color? stateColor;
     if (d.existing != null) {
       state = '';
+      stateColor = null;
     } else if (d.uploadedUrl != null) {
       state = 'uploaded';
+      stateColor = SdColors.active;
+    } else if (d.uploading != null) {
+      state = 'uploading ${(d.progress * 100).round()}%';
+      stateColor = null;
     } else {
-      state = 'uploads on save';
+      state = '';
+      stateColor = null;
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -1042,6 +1536,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                   initialValue: d.kind,
                   onSelected: (k) => setState(() {
                     d.kind = k;
+                    d.kindChosen = true;
                     _dirty = true;
                   }),
                   itemBuilder: (_) => [
@@ -1051,7 +1546,14 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(d.kind, style: theme.textTheme.titleSmall),
+                      Flexible(
+                        child: Text(
+                          d.kind,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall,
+                        ),
+                      ),
                       Icon(
                         Icons.expand_more_rounded,
                         size: 18,
@@ -1060,26 +1562,58 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
                     ],
                   ),
                 ),
-                Text(
-                  [
-                    d.fileName,
-                    formatBytes(d.sizeBytes),
-                    if (state.isNotEmpty) state,
-                  ].join(' · '),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${d.fileName} · ${formatBytes(d.sizeBytes)}',
+                      ),
+                      if (state.isNotEmpty)
+                        TextSpan(
+                          text: ' · $state',
+                          style: TextStyle(
+                            color: stateColor,
+                            fontWeight: stateColor == null
+                                ? null
+                                : FontWeight.w700,
+                          ),
+                        ),
+                    ],
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall,
                 ),
-                if (d.problem != null)
-                  Text(
-                    'Not uploaded: ${d.problem}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: SdColors.expired,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                if (d.uploading != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: LinearProgressIndicator(
+                      value: d.progress > 0 ? d.progress : null,
+                      minHeight: 3,
+                      borderRadius: BorderRadius.circular(2),
                     ),
+                  ),
+                if (d.problem != null)
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Not uploaded: ${d.problem}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: SdColors.expired,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      if (!_saving)
+                        TextButton(
+                          onPressed: () => setState(() => _startDocUpload(d)),
+                          child: const Text('Retry'),
+                        ),
+                    ],
                   ),
               ],
             ),
@@ -1089,15 +1623,7 @@ class _CustomerFormScreenState extends State<CustomerFormScreen> {
             visualDensity: VisualDensity.compact,
             iconSize: 18,
             icon: const Icon(Icons.close_rounded),
-            onPressed: _saving
-                ? null
-                : () {
-                    setState(() {
-                      _docs.remove(d);
-                      _dirty = true;
-                    });
-                    _saveDraft();
-                  },
+            onPressed: _saving ? null : () => _removeDocument(d),
           ),
         ],
       ),

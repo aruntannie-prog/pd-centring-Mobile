@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -10,6 +12,8 @@ import 'data/file_store.dart';
 import 'data/firestore_repository.dart';
 import 'data/memory_repository.dart';
 import 'data/repository.dart';
+import 'config/document_ai.dart';
+import 'services/document_reader.dart';
 import 'core/dates.dart';
 import 'services/reminder_scheduler.dart';
 import 'state/app_state.dart';
@@ -49,9 +53,10 @@ class SdApp extends StatelessWidget {
         providers: [providers],
         child: _Session(
           key: const ValueKey('demo'),
-          scheduler: scheduler,
+          scheduler: DemoReminderScheduler(scheduler),
           settings: settings,
           drafts: drafts,
+          reader: const DemoDocumentReader(),
           createRepo: () => MemoryRepository(
             customers: demo.customers,
             rentals: demo.rentals,
@@ -84,6 +89,9 @@ class SdApp extends StatelessWidget {
             accountEmail: user.email ?? '',
             signOut: FirebaseAuth.instance.signOut,
             files: FirebaseFileStore(FirebaseStorage.instance),
+            reader: DocumentAi.enabled
+                ? GeminiDocumentReader()
+                : const NoDocumentReader(),
             createRepo: () => FirestoreRepository(FirebaseFirestore.instance),
           );
         },
@@ -117,11 +125,13 @@ class _Session extends StatefulWidget {
     this.signOut,
     this.files,
     this.drafts,
+    this.reader = const NoDocumentReader(),
   });
 
   final ReminderScheduler scheduler;
   final ReminderSettings settings;
   final DraftStore? drafts;
+  final DocumentReader reader;
   final Repository Function() createRepo;
   final String? accountEmail;
   final Future<void> Function()? signOut;
@@ -143,6 +153,7 @@ class _SessionState extends State<_Session> with WidgetsBindingObserver {
     signOut: widget.signOut,
     files: widget.files,
     drafts: widget.drafts,
+    reader: widget.reader,
   );
 
   @override
@@ -154,6 +165,19 @@ class _SessionState extends State<_Session> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.scheduler.requestPermission();
       _openPending();
+    });
+    _armMidnight();
+  }
+
+  /// "Today" changes at midnight even if the app stays open (a counter
+  /// tablet or a browser tab left on overnight).
+  Timer? _midnight;
+  void _armMidnight() {
+    final now = DateTime.now();
+    final next = DateTime(now.year, now.month, now.day + 1, 0, 0, 5);
+    _midnight = Timer(next.difference(now), () {
+      _app.refresh();
+      _armMidnight();
     });
   }
 
@@ -183,6 +207,7 @@ class _SessionState extends State<_Session> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _midnight?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     pendingRentalId.removeListener(_openPending);
     _app.removeListener(_onAppChanged);
