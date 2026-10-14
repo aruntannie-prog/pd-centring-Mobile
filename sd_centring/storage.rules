@@ -4,7 +4,8 @@ rules_version = '2';
 //
 // Customer photos and ID / address proofs live under customers/{customerId}/.
 // Only signed-in staff (a document at staff/{uid} in Firestore) can read or
-// write them, uploads must be images or PDFs, and nothing may exceed 10 MB.
+// write them, uploads must be photos (JPEG, PNG, WebP, HEIC) or PDFs, and
+// nothing may exceed 10 MB.
 // (The PD app allowed anyone to read and write its customer files.)
 service firebase.storage {
   match /b/{bucket}/o {
@@ -16,7 +17,9 @@ service firebase.storage {
 
     function isAllowedFile() {
       return request.resource.size <= 10 * 1024 * 1024
-        && (request.resource.contentType.matches('image/.*')
+        // Only what the app produces. Not image/* in general: an SVG can
+        // carry script that runs when opened in a browser.
+        && (request.resource.contentType.matches('image/(jpeg|png|webp|heic)')
             || request.resource.contentType == 'application/pdf');
     }
 

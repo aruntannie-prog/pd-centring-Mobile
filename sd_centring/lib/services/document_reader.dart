@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:firebase_ai/firebase_ai.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 
 import '../config/document_ai.dart';
 import '../models/customer.dart';
@@ -78,13 +80,15 @@ class DemoDocumentReader implements DocumentReader {
 /// of document are asked for; addresses and ID numbers are never extracted
 /// or stored.
 class GeminiDocumentReader implements DocumentReader {
-  GeminiDocumentReader()
+  /// [app] and [httpClient] are for tests; the app uses the defaults.
+  GeminiDocumentReader({FirebaseApp? app, http.Client? httpClient})
     : _model =
           (DocumentAi.useAgentPlatform
-                  ? FirebaseAI.agentPlatform()
-                  : FirebaseAI.googleAI())
+                  ? FirebaseAI.agentPlatform(app: app)
+                  : FirebaseAI.googleAI(app: app))
               .generativeModel(
                 model: DocumentAi.model,
+                httpClient: httpClient,
                 systemInstruction: Content.system(documentPrompt),
                 generationConfig: GenerationConfig(
                   temperature: 0,
@@ -127,9 +131,19 @@ class GeminiDocumentReader implements DocumentReader {
         'Reading took too long. Check the internet connection.',
       );
     } on ServiceApiNotEnabled {
+      throw DocumentReadException(_notEnabled);
+    } on ServerException catch (e) {
+      // Some setups report a disabled API without the detail block the
+      // SDK looks for; recognise Google's wording too.
+      final m = e.message.toLowerCase();
+      if (m.contains('has not been used in project') ||
+          m.contains('it is disabled') ||
+          m.contains('service_disabled')) {
+        throw DocumentReadException(_notEnabled);
+      }
+      debugPrint('GeminiDocumentReader: $e');
       throw DocumentReadException(
-        'Document reading is not switched on yet. Ask the owner to enable '
-        'Firebase AI Logic (see README).',
+        'Could not read this document. Type the details instead.',
       );
     } on QuotaExceeded {
       throw DocumentReadException(
@@ -143,6 +157,10 @@ class GeminiDocumentReader implements DocumentReader {
     }
   }
 }
+
+const _notEnabled =
+    'Document reading is not switched on yet. Ask the owner to enable '
+    'Firebase AI Logic (see README).';
 
 /// Instructions for the model. Kept here so they can be reviewed.
 const documentPrompt = '''

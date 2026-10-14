@@ -76,7 +76,15 @@ class FirebaseFileStore implements FileStore {
     var stalled = false;
     final sub = task.snapshotEvents.listen((s) {
       lastProgress = DateTime.now();
-      if (s.totalBytes > 0) onProgress?.call(s.bytesTransferred / s.totalBytes);
+      // Progress is cosmetic: a bad progress event must never fail the
+      // upload itself.
+      try {
+        if (s.totalBytes > 0) {
+          onProgress?.call(s.bytesTransferred / s.totalBytes);
+        }
+      } catch (e) {
+        debugPrint('FirebaseFileStore: progress unavailable: $e');
+      }
     }, onError: (_) {});
     final watchdog = Timer.periodic(const Duration(seconds: 5), (_) {
       if (DateTime.now().difference(lastProgress) > _stallLimit) {

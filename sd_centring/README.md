@@ -137,12 +137,28 @@ Name, phone, address, DC number prefix, first DC number, material names and
 time zone are all in `lib/config/brand.dart`. Fill them in when SD Centring
 provides them.
 
-## Development
+## Development and testing
+
+| Suite | What it covers | Run |
+|---|---|---|
+| Unit + widget (`test/`) | every screen and rule, Firestore/Storage layers (in-memory fakes), Gemini request/response (fake HTTP), phone pickers, links, sign-in, notifications (recorded Android channel), compression | `flutter test` |
+| Integration (`integration_test/`) | the real app from `main()` in Chrome: startup, tabs, customer and delivery journeys | see below |
+| Security rules (`test_rules/`) | `firestore.rules` and `storage.rules` against the Firebase emulators | `cd test_rules && npm install && npm run test:emulators` (needs Java) |
+| Browser (`e2e_web/`) | the built release app with real key presses and file choosers (photo/PDF upload) | see `e2e_web/README.md` |
+
+Integration tests in Chrome (needs a chromedriver matching your Chrome):
 
 ```bash
-flutter analyze   # static checks
-flutter test      # unit + widget tests (expiry, reminders, returns, forms, layouts)
+chromedriver --port=4444 &
+flutter drive --driver=test_driver/integration_test.dart \
+  --target=integration_test/customers_test.dart \
+  -d web-server --browser-name=chrome --web-browser-flag=--headless=new
 ```
+
+Run them in debug mode (the default): in optimised web builds Flutter's test
+harness cannot type into text fields, which is why typing in the release
+build is checked by `e2e_web/` instead. On an Android device or emulator,
+`flutter test integration_test` runs the same journeys.
 
 CI (`.github/workflows/sd_centring.yml`) runs formatting, analysis, tests, a
 web build and an Android build on every push that touches `sd_centring/`.

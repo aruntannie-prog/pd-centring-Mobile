@@ -7,7 +7,10 @@ import '../theme.dart';
 /// Email + password sign-in. Accounts are created by the owner in the
 /// Firebase console; there is intentionally no public sign-up.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.auth});
+
+  /// For tests; the app uses [FirebaseAuth.instance].
+  final FirebaseAuth? auth;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -20,6 +23,8 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
   bool _obscure = true;
   String? _error;
+
+  FirebaseAuth get _auth => widget.auth ?? FirebaseAuth.instance;
 
   @override
   void dispose() {
@@ -46,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      await _auth.signInWithEmailAndPassword(
         email: _email.text.trim(),
         password: _password.text,
       );
@@ -70,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_busy) return;
     setState(() => _busy = true);
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      await _auth.sendPasswordResetEmail(email: email);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Password reset email sent to $email')),

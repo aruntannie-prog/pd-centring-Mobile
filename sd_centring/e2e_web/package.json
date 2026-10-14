@@ -1,0 +1,11 @@
+{
+  "name": "sd-centring-e2e-web",
+  "private": true,
+  "description": "Browser end-to-end checks of the built SD Centring web app (real key presses and file choosers).",
+  "scripts": {
+    "test": "node run-all.js"
+  },
+  "dependencies": {
+    "playwright": "^1.64.0"
+  }
+}
